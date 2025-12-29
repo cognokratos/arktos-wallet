@@ -12,7 +12,7 @@ date: 2025-12-29
 author: Victor
 ---
 
-# Product Brief: arktos-wallet
+# Product Brief: Арктос Wallet
 
 ## Executive Summary
 
