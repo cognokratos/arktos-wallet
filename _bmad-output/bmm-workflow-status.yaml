@@ -25,7 +25,8 @@ workflow_status:
   document-project: required
   brainstorm-project: included
   research: optional
-  product-brief: optional
+  product-brief: "_bmad-output/planning-artifacts/product-brief-arktos-wallet-2025-12-29.md"
+  product-brief-completed_at: "2025-12-29T15:07:51.962Z"
   prd: required
   create-ux-design: conditional
   create-architecture: recommended
