@@ -1,0 +1,12 @@
+installation:
+  version: 6.0.0-alpha.21
+  installDate: 2025-12-29T15:07:51.981Z
+  lastUpdated: 2025-12-29T15:07:51.981Z
+modules:
+  - core
+  - bmm
+ides:
+  - codex
+  - github-copilot
+  - gemini
+  - qwen
