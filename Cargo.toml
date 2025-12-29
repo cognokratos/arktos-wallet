@@ -6,6 +6,9 @@ edition = "2024"
 [dependencies]
 tokio = { version = "1", features = ["full"] }
 
+# Use rusqlite and bundle SQLCipher + a vendored OpenSSL
+rusqlite = { version = "0.38", features = ["bundled-sqlcipher-vendored-openssl"] }
+
 # Official MCP Rust SDK
 rmcp = { version = "0.12", features = [
     "server",
@@ -25,3 +28,8 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # For graceful shutdown token used by rmcp streamable-http config
 tokio-util = "0.7"
 anyhow = "1.0.100"
+
+bip39 = "2"
+bitcoin = { version = "0.32", features = ["std"] }
+tiny-keccak = "2"
+

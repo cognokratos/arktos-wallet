@@ -1,0 +1,40 @@
+{
+"workflow_version": "1.2.0",
+"timestamps": {"started": "2025-12-29T15:07:51.962Z", "last_updated": "2025-12-29T15:07:51.962Z"},
+"mode": "initial_scan",
+"scan_level": "quick",
+"project_root": "/Users/victornitu/Projects/CognoKratos/arktos-wallet",
+"output_folder": "/Users/victornitu/Projects/CognoKratos/arktos-wallet/docs",
+"completed_steps": [
+{"step": "step_1", "status": "completed", "timestamp": "2025-12-29T15:07:51.962Z", "summary": "Classified as monolith with 1 part"},
+{"step": "step_2", "status": "completed", "timestamp": "2025-12-29T15:07:51.962Z", "summary": "Found 1 existing docs"},
+{"step": "step_3", "status": "completed", "timestamp": "2025-12-29T15:07:51.962Z", "summary": "Tech stack: Axum on Rust"},
+{"step": "step_4", "status": "completed", "timestamp": "2025-12-29T15:07:51.962Z", "summary": "Conditional analysis complete, 0 files written"},
+{"step": "step_5", "status": "completed", "timestamp": "2025-12-29T15:07:51.962Z", "summary": "Source tree documented"},
+{"step": "step_6", "status": "completed", "timestamp": "2025-12-29T15:07:51.962Z", "summary": "Dev/deployment guides written"},
+{"step": "step_7", "status": "skipped", "timestamp": "2025-12-29T15:07:51.962Z", "summary": "Integration architecture skipped for monolith"},
+{"step": "step_8", "status": "completed", "timestamp": "2025-12-29T15:07:51.962Z", "summary": "Architecture docs written for 1 parts"},
+{"step": "step_9", "status": "completed", "timestamp": "2025-12-29T15:07:51.962Z", "summary": "All supporting docs written"},
+{"step": "step_10", "status": "completed", "timestamp": "2025-12-29T15:07:51.962Z", "summary": "Master index generated"},
+{"step": "step_11", "status": "completed", "timestamp": "2025-12-29T15:07:51.962Z", "summary": "Validation and review complete"},
+{"step": "step_12", "status": "completed", "timestamp": "2025-12-29T15:07:51.962Z", "summary": "Workflow complete"}
+],
+"current_step": "completed",
+"timestamps": {"started": "2025-12-29T15:07:51.962Z", "last_updated": "2025-12-29T15:07:51.962Z", "completed": "2025-12-29T15:07:51.962Z"},
+"findings": {
+"project_classification": "Monolith, 1 part, primary technology: backend",
+"technology_stack": {
+"main": {
+"language": "Rust",
+"framework": "Axum",
+"architecture_pattern": "API-centric"
+}
+},
+"apis": "No API routes identified from file structure in quick scan.",
+"data_models": "No data models identified from file structure in quick scan."
+},
+"project_types": [
+{"part_id": "main", "project_type_id": "backend", "display_name": "backend"}
+],
+"outputs_generated": ["project-scan-report.json", "source-tree-analysis.md", "development-guide.md", "architecture.md", "project-overview.md", "index.md", "api-contracts.md", "data-models.md", "deployment-guide.md"]
+}
