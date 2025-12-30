@@ -6,7 +6,7 @@ status: 'complete'
 completedAt: 'Tuesday, December 30, 2025'
 ---
 
-# Architecture Decision Document
+# Architecture Decision Document - Арктос Wallet
 
 _This document builds collaboratively through step-by-step discovery. Sections are appended as we work through each architectural decision together._
 

@@ -4,7 +4,7 @@ description: "Project Context for Arktos Wallet"
 date: "Tuesday, December 30, 2025"
 ---
 
-# Project Context: Arktos Wallet
+# Project Context: Арктос Wallet
 
 This document provides a concise overview of the project's technical landscape, critical implementation rules, and architectural guidelines that AI agents **MUST** follow to ensure consistent and high-quality code generation.
 
