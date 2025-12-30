@@ -29,8 +29,8 @@ workflow_status:
   product-brief-completed_at: "2025-12-29T15:07:51.962Z"
   prd: "/Users/victornitu/Projects/CognoKratos/arktos-wallet/_bmad-output/planning-artifacts/prd.md"
   prd-completed_at: "2025-12-29T22:45:26Z"
-  create-ux-design: conditional
-  create-architecture: recommended
+  architecture: "/Users/victornitu/Projects/CognoKratos/arktos-wallet/_bmad-output/planning-artifacts/architecture.md"
+  architecture-completed_at: "2025-12-30T20:13:00Z"
   create-epics-and-stories: required
   test-design: recommended
   validate-architecture: optional
