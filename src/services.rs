@@ -1,3 +1,4 @@
+use crate::models::ChainType;
 use crate::{crypto, db::Database, error::AppError, wallet_manager};
 use anyhow::Result;
 use schemars::JsonSchema;
@@ -23,7 +24,7 @@ pub struct CreateWalletResponse {
 pub struct CreateAccountRequest {
     pub wallet_id: i64,
     pub account_index: u32,
-    pub chain_type: String,
+    pub chain_type: ChainType,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -32,7 +33,7 @@ pub struct AccountResponse {
     pub wallet_id: i64,
     pub account_index: u32,
     pub public_key: String,
-    pub chain_type: String,
+    pub chain_type: ChainType,
     pub created_at: String,
 }
 
@@ -181,6 +182,7 @@ impl Services {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::ChainType::{Bitcoin, Ethereum};
     use tempfile::TempDir;
 
     #[tokio::test]
@@ -291,7 +293,7 @@ mod tests {
         let account_req = CreateAccountRequest {
             wallet_id: wallet_resp.wallet_id,
             account_index: 0,
-            chain_type: "Bitcoin".to_string(),
+            chain_type: Bitcoin,
         };
 
         let account_resp = handler.create_or_get_account(account_req).await;
@@ -300,7 +302,7 @@ mod tests {
         let acc = account_resp.unwrap();
         assert_eq!(acc.wallet_id, wallet_resp.wallet_id);
         assert_eq!(acc.account_index, 0);
-        assert_eq!(acc.chain_type, "Bitcoin");
+        assert_eq!(acc.chain_type, Bitcoin);
         assert!(!acc.public_key.is_empty());
     }
 
@@ -330,7 +332,7 @@ mod tests {
         let account_req1 = CreateAccountRequest {
             wallet_id: wallet_resp.wallet_id,
             account_index: 0,
-            chain_type: "Bitcoin".to_string(),
+            chain_type: Bitcoin,
         };
         let acc1 = handler.create_or_get_account(account_req1).await.unwrap();
 
@@ -338,7 +340,7 @@ mod tests {
         let account_req2 = CreateAccountRequest {
             wallet_id: wallet_resp.wallet_id,
             account_index: 0,
-            chain_type: "Bitcoin".to_string(),
+            chain_type: Bitcoin,
         };
         let acc2 = handler.create_or_get_account(account_req2).await.unwrap();
 
@@ -367,7 +369,7 @@ mod tests {
         let account_req = CreateAccountRequest {
             wallet_id: 999,
             account_index: 0,
-            chain_type: "Bitcoin".to_string(),
+            chain_type: Bitcoin,
         };
 
         let result = handler.create_or_get_account(account_req).await;
@@ -400,11 +402,11 @@ mod tests {
         let account_req = CreateAccountRequest {
             wallet_id: wallet_resp.wallet_id,
             account_index: 0,
-            chain_type: "Ethereum".to_string(),
+            chain_type: Ethereum,
         };
 
         let acc = handler.create_or_get_account(account_req).await.unwrap();
-        assert_eq!(acc.chain_type, "Ethereum");
+        assert_eq!(acc.chain_type, Ethereum);
         assert!(!acc.public_key.is_empty());
     }
 }

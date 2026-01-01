@@ -1,3 +1,4 @@
+use arktos_wallet::models::ChainType::{Bitcoin, Ethereum};
 use arktos_wallet::{
     db::Database,
     services::{CreateAccountRequest, CreateWalletRequest, Services},
@@ -100,7 +101,7 @@ async fn test_wallet_and_account_creation_integration() {
     let btc_account_req = CreateAccountRequest {
         wallet_id,
         account_index: 0,
-        chain_type: "Bitcoin".to_string(),
+        chain_type: Bitcoin,
     };
     let btc_account = handler
         .create_or_get_account(btc_account_req)
@@ -109,14 +110,14 @@ async fn test_wallet_and_account_creation_integration() {
 
     assert_eq!(btc_account.wallet_id, wallet_id);
     assert_eq!(btc_account.account_index, 0);
-    assert_eq!(btc_account.chain_type, "Bitcoin");
+    assert_eq!(btc_account.chain_type, Bitcoin);
     assert!(!btc_account.public_key.is_empty());
 
     // Step 3: Create Ethereum account
     let eth_account_req = CreateAccountRequest {
         wallet_id,
         account_index: 0,
-        chain_type: "Ethereum".to_string(),
+        chain_type: Ethereum,
     };
     let eth_account = handler
         .create_or_get_account(eth_account_req)
@@ -125,7 +126,7 @@ async fn test_wallet_and_account_creation_integration() {
 
     assert_eq!(eth_account.wallet_id, wallet_id);
     assert_eq!(eth_account.account_index, 0);
-    assert_eq!(eth_account.chain_type, "Ethereum");
+    assert_eq!(eth_account.chain_type, Ethereum);
     assert!(!eth_account.public_key.is_empty());
 
     // Step 4: Verify Bitcoin and Ethereum accounts have different public keys
@@ -138,7 +139,7 @@ async fn test_wallet_and_account_creation_integration() {
     let btc_account_idx1_req = CreateAccountRequest {
         wallet_id,
         account_index: 1,
-        chain_type: "Bitcoin".to_string(),
+        chain_type: Bitcoin,
     };
     let btc_account_idx1 = handler
         .create_or_get_account(btc_account_idx1_req)
@@ -153,12 +154,12 @@ async fn test_wallet_and_account_creation_integration() {
 
     // Step 7: Verify accounts are persisted in database
     let stored_account = db
-        .get_account(wallet_id, 0, "Bitcoin")
+        .get_account(wallet_id, 0, &Bitcoin)
         .expect("Failed to query account")
         .expect("Account should exist in database");
 
     assert_eq!(stored_account.wallet_id, wallet_id);
     assert_eq!(stored_account.account_index, 0);
-    assert_eq!(stored_account.chain_type, "Bitcoin");
+    assert_eq!(stored_account.chain_type, Bitcoin);
     assert_eq!(stored_account.public_key, btc_account.public_key);
 }

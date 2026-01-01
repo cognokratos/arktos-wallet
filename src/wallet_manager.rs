@@ -1,3 +1,4 @@
+use crate::models::ChainType;
 use anyhow::{Result, anyhow};
 use bip32::{DerivationPath, XPrv};
 use bip39::Mnemonic;
@@ -17,7 +18,7 @@ pub fn generate_recovery_passphrase() -> Result<String> {
 pub fn derive_account_keys(
     mnemonic: &str,
     account_index: u32,
-    chain_type: &str,
+    chain_type: &ChainType,
 ) -> Result<(String, String, String)> {
     let mnemonic =
         Mnemonic::parse_normalized(mnemonic).map_err(|e| anyhow!("Invalid mnemonic: {}", e))?;
@@ -27,9 +28,8 @@ pub fn derive_account_keys(
     let mut xprv = XPrv::new(seed)?;
 
     let derivation_path = match chain_type {
-        "Bitcoin" => format!("m/44'/0'/0'/0/{}", account_index),
-        "Ethereum" => format!("m/44'/60'/0'/0/{}", account_index),
-        other => return Err(anyhow!("Unsupported chain type: {}", other)),
+        ChainType::Bitcoin => format!("m/44'/0'/0'/0/{}", account_index),
+        ChainType::Ethereum => format!("m/44'/60'/0'/0/{}", account_index),
     };
 
     let path = DerivationPath::from_str(&derivation_path)
@@ -53,6 +53,7 @@ pub fn derive_account_keys(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::ChainType::{Bitcoin, Ethereum};
 
     #[test]
     fn test_generate_recovery_passphrase_returns_string() {
@@ -95,7 +96,7 @@ mod tests {
     fn test_derive_account_keys_bitcoin() {
         let mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
         let (private_key, public_key, path) =
-            derive_account_keys(mnemonic, 0, "Bitcoin").expect("Should derive Bitcoin keys");
+            derive_account_keys(mnemonic, 0, &Bitcoin).expect("Should derive Bitcoin keys");
 
         assert!(!private_key.is_empty(), "Private key should not be empty");
         assert!(!public_key.is_empty(), "Public key should not be empty");
@@ -109,7 +110,7 @@ mod tests {
     fn test_derive_account_keys_ethereum() {
         let mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
         let (private_key, public_key, path) =
-            derive_account_keys(mnemonic, 0, "Ethereum").expect("Should derive Ethereum keys");
+            derive_account_keys(mnemonic, 0, &Ethereum).expect("Should derive Ethereum keys");
 
         assert!(!private_key.is_empty(), "Private key should not be empty");
         assert!(!public_key.is_empty(), "Public key should not be empty");
@@ -123,9 +124,9 @@ mod tests {
     fn test_derive_account_keys_different_indices() {
         let mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
         let (priv1, pub1, _) =
-            derive_account_keys(mnemonic, 0, "Bitcoin").expect("Should derive first account");
+            derive_account_keys(mnemonic, 0, &Bitcoin).expect("Should derive first account");
         let (priv2, pub2, _) =
-            derive_account_keys(mnemonic, 1, "Bitcoin").expect("Should derive second account");
+            derive_account_keys(mnemonic, 1, &Bitcoin).expect("Should derive second account");
 
         assert_ne!(
             priv1, priv2,
@@ -139,14 +140,7 @@ mod tests {
 
     #[test]
     fn test_derive_account_keys_invalid_mnemonic() {
-        let result = derive_account_keys("invalid mnemonic words", 0, "Bitcoin");
+        let result = derive_account_keys("invalid mnemonic words", 0, &Bitcoin);
         assert!(result.is_err(), "Should reject invalid mnemonic");
-    }
-
-    #[test]
-    fn test_derive_account_keys_unsupported_chain() {
-        let mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
-        let result = derive_account_keys(mnemonic, 0, "UnsupportedChain");
-        assert!(result.is_err(), "Should reject unsupported chain type");
     }
 }

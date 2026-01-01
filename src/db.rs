@@ -1,6 +1,7 @@
-use crate::models::{Account, Wallet};
+use crate::models::{Account, ChainType, Wallet};
 use anyhow::{Context, Result};
 use rusqlite::{Connection, OptionalExtension, params};
+use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 
 pub struct Database {
@@ -152,14 +153,14 @@ impl Database {
         account_index: i32,
         encrypted_private_key: &str,
         public_key: &str,
-        chain_type: &str,
+        chain_type: &ChainType,
     ) -> Result<Account> {
         let conn = self.conn.lock().unwrap();
 
         conn.execute(
             "INSERT INTO accounts (wallet_id, account_index, encrypted_private_key, public_key, chain_type) 
              VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![wallet_id, account_index, encrypted_private_key, public_key, chain_type],
+            params![wallet_id, account_index, encrypted_private_key, public_key, chain_type.to_string()],
         )
         .context("Failed to insert account")?;
 
@@ -171,7 +172,7 @@ impl Database {
             account_index,
             encrypted_private_key: encrypted_private_key.to_string(),
             public_key: public_key.to_string(),
-            chain_type: chain_type.to_string(),
+            chain_type: chain_type.clone(),
             created_at: chrono::Utc::now().to_rfc3339(),
         })
     }
@@ -181,7 +182,7 @@ impl Database {
         &self,
         wallet_id: i64,
         account_index: i32,
-        chain_type: &str,
+        chain_type: &ChainType,
     ) -> Result<Option<Account>> {
         let conn = self.conn.lock().unwrap();
 
@@ -193,20 +194,24 @@ impl Database {
             .context("Failed to prepare statement")?;
 
         let account = stmt
-            .query_row(params![wallet_id, account_index, chain_type], |row| {
-                Ok(Account {
-                    id: row.get(0)?,
-                    wallet_id: row.get(1)?,
-                    account_index: row.get(2)?,
-                    encrypted_private_key: row.get(3)?,
-                    public_key: row.get(4)?,
-                    chain_type: row.get(5)?,
-                    created_at: row.get(6)?,
-                })
-            })
+            .query_row(
+                params![wallet_id, account_index, chain_type.to_string()],
+                |row| {
+                    let chain_type: String = row.get(5)?;
+                    let chain_type = ChainType::from_str(&chain_type);
+                    Ok(Account {
+                        id: row.get(0)?,
+                        wallet_id: row.get(1)?,
+                        account_index: row.get(2)?,
+                        encrypted_private_key: row.get(3)?,
+                        public_key: row.get(4)?,
+                        chain_type: chain_type.unwrap(),
+                        created_at: row.get(6)?,
+                    })
+                },
+            )
             .optional()
             .context("Failed to query account")?;
-
         Ok(account)
     }
 }
@@ -214,6 +219,7 @@ impl Database {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::ChainType::Bitcoin;
     use tempfile::TempDir;
 
     #[test]
@@ -296,7 +302,7 @@ mod tests {
                 0,
                 "encrypted_key_123",
                 "public_key_abc",
-                "Bitcoin",
+                &Bitcoin,
             )
             .expect("Failed to create account");
 
@@ -304,7 +310,7 @@ mod tests {
         assert_eq!(account.account_index, 0);
         assert_eq!(account.encrypted_private_key, "encrypted_key_123");
         assert_eq!(account.public_key, "public_key_abc");
-        assert_eq!(account.chain_type, "Bitcoin");
+        assert_eq!(account.chain_type, Bitcoin);
     }
 
     #[test]
@@ -322,18 +328,18 @@ mod tests {
             .create_wallet("TestWallet", "pass")
             .expect("Failed to create wallet");
 
-        db.create_account(wallet.id, 0, "key1", "pubkey1", "Bitcoin")
+        db.create_account(wallet.id, 0, "key1", "pubkey1", &Bitcoin)
             .expect("Failed to create account");
 
         let retrieved = db
-            .get_account(wallet.id, 0, "Bitcoin")
+            .get_account(wallet.id, 0, &Bitcoin)
             .expect("Failed to get account");
 
         assert!(retrieved.is_some());
         let acc = retrieved.unwrap();
         assert_eq!(acc.wallet_id, wallet.id);
         assert_eq!(acc.account_index, 0);
-        assert_eq!(acc.chain_type, "Bitcoin");
+        assert_eq!(acc.chain_type, Bitcoin);
     }
 
     #[test]
