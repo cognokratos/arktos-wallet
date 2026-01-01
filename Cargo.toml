@@ -28,8 +28,15 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # For graceful shutdown token used by rmcp streamable-http config
 tokio-util = "0.7"
 anyhow = "1.0.100"
+chrono = { version = "0.4", features = ["serde"] }
 
 bip39 = "2"
 bitcoin = { version = "0.32", features = ["std"] }
-tiny-keccak = "2"
+tiny-keccak = { version = "2", features = ["keccak"] }
+rand = "0.8"
+hex = "0.4"
+
+[dev-dependencies]
+tempfile = "3"
+
 

@@ -1,4 +1,4 @@
-.PHONY: help dev format
+.PHONY: help dev test format
 
 help:
 	@echo "Available targets:"
@@ -7,6 +7,9 @@ help:
 
 dev:
 	RUST_LOG=debug cargo run
+
+test:
+	cargo test
 
 format:
 	cargo fmt

@@ -1,3 +1,4 @@
+use arktos_wallet::{api_handlers::ApiHandlers, db::Database};
 use axum::{Router, routing::get};
 use rmcp::{
     ServerHandler,
@@ -9,20 +10,22 @@ use rmcp::{
         StreamableHttpService, session::local::LocalSessionManager,
     },
 };
-use std::{net::SocketAddr, time::Duration};
+use std::{net::SocketAddr, sync::Arc, time::Duration};
 use tokio_util::sync::CancellationToken;
 use tracing_subscriber::EnvFilter;
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 struct App {
     tool_router: ToolRouter<App>,
+    _handlers: Arc<ApiHandlers>,
 }
 
 #[tool_router]
 impl App {
-    pub fn new() -> Self {
+    pub fn new(handlers: Arc<ApiHandlers>) -> Self {
         Self {
             tool_router: Self::tool_router(),
+            _handlers: handlers,
         }
     }
 
@@ -36,7 +39,7 @@ impl App {
 impl ServerHandler for App {
     fn get_info(&self) -> ServerInfo {
         ServerInfo {
-            instructions: Some("Example MCP server over Streamable HTTP".into()),
+            instructions: Some("Arktos MCP server over Streamable HTTP".into()),
             capabilities: ServerCapabilities::builder().enable_tools().build(),
             ..Default::default()
         }
@@ -49,17 +52,26 @@ async fn main() -> anyhow::Result<()> {
         .with_env_filter(EnvFilter::from_default_env())
         .init();
 
+    // Initialize database with SQLCipher encryption
+    let cipher_key =
+        std::env::var("DATABASE_CIPHER_KEY").unwrap_or_else(|_| "default_cipher_key".to_string());
+    let db_path = std::env::var("DATABASE_PATH").unwrap_or_else(|_| "arktos.db".to_string());
+
+    let db = Arc::new(Database::new(&db_path, &cipher_key)?);
+    let handlers = Arc::new(ApiHandlers::new(db, cipher_key));
+
     // Cancellation token shared with MCP transport for graceful shutdown.
     let ct = CancellationToken::new();
 
     let mcp_service = StreamableHttpService::new(
-        || Ok(App::new()),
+        {
+            let handlers = handlers.clone();
+            move || Ok(App::new(handlers.clone()))
+        },
         LocalSessionManager::default().into(),
         StreamableHttpServerConfig {
             cancellation_token: ct.child_token(),
-            // Optional SSE keep-alive ping cadence (useful behind proxies)
             sse_keep_alive: Some(Duration::from_secs(15)),
-            // "true" enables session-based behavior for streamable HTTP
             stateful_mode: true,
         },
     );
