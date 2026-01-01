@@ -3,13 +3,13 @@ use tiny_keccak::{Hasher, Keccak};
 
 /// Simple encryption using Keccak hash-based XOR cipher for demonstration
 /// Production systems should use proper AES-256 encryption
-pub fn encrypt_passphrase(passphrase: &str, key: &str) -> Result<String> {
+pub fn encrypt_secret(secret: &str, key: &str) -> Result<String> {
     let mut hasher = Keccak::v256();
     hasher.update(key.as_bytes());
     let mut key_hash = [0u8; 32];
     hasher.finalize(&mut key_hash);
 
-    let passphrase_bytes = passphrase.as_bytes();
+    let passphrase_bytes = secret.as_bytes();
     let mut encrypted = Vec::new();
 
     for (i, byte) in passphrase_bytes.iter().enumerate() {
@@ -20,7 +20,7 @@ pub fn encrypt_passphrase(passphrase: &str, key: &str) -> Result<String> {
 }
 
 /// Decrypt a passphrase encrypted with the corresponding key
-pub fn decrypt_passphrase(encrypted: &str, key: &str) -> Result<String> {
+pub fn decrypt_secret(encrypted: &str, key: &str) -> Result<String> {
     let mut hasher = Keccak::v256();
     hasher.update(key.as_bytes());
     let mut key_hash = [0u8; 32];
@@ -45,8 +45,8 @@ mod tests {
         let original = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
         let key = "test_key";
 
-        let encrypted = encrypt_passphrase(original, key).expect("Should encrypt");
-        let decrypted = decrypt_passphrase(&encrypted, key).expect("Should decrypt");
+        let encrypted = encrypt_secret(original, key).expect("Should encrypt");
+        let decrypted = decrypt_secret(&encrypted, key).expect("Should decrypt");
 
         assert_eq!(original, decrypted);
     }
@@ -57,8 +57,8 @@ mod tests {
         let key1 = "key1";
         let key2 = "key2";
 
-        let encrypted1 = encrypt_passphrase(passphrase, key1).expect("Should encrypt with key1");
-        let encrypted2 = encrypt_passphrase(passphrase, key2).expect("Should encrypt with key2");
+        let encrypted1 = encrypt_secret(passphrase, key1).expect("Should encrypt with key1");
+        let encrypted2 = encrypt_secret(passphrase, key2).expect("Should encrypt with key2");
 
         assert_ne!(encrypted1, encrypted2);
     }
@@ -66,8 +66,8 @@ mod tests {
     #[test]
     fn test_wrong_key_produces_garbage_on_decrypt() {
         let passphrase = "test_passphrase";
-        let encrypted = encrypt_passphrase(passphrase, "key1").expect("Should encrypt");
-        let decrypted_result = decrypt_passphrase(&encrypted, "wrong_key");
+        let encrypted = encrypt_secret(passphrase, "key1").expect("Should encrypt");
+        let decrypted_result = decrypt_secret(&encrypted, "wrong_key");
 
         // With a wrong key, decryption may produce invalid UTF-8 or wrong content
         if let Ok(decrypted) = decrypted_result {

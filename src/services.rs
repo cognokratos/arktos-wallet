@@ -21,7 +21,7 @@ pub struct CreateWalletResponse {
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
-pub struct CreateAccountRequest {
+pub struct GetAccountRequest {
     pub wallet_id: i64,
     pub account_index: u32,
     pub chain_type: ChainType,
@@ -91,10 +91,10 @@ impl Services {
         })?;
 
         // Encrypt the passphrase
-        let encrypted_passphrase =
-            crypto::encrypt_passphrase(&recovery_passphrase, &self.cipher_key).map_err(|e| {
-                AppError::InternalError(format!("Failed to encrypt passphrase: {}", e))
-            })?;
+        let encrypted_passphrase = crypto::encrypt_secret(&recovery_passphrase, &self.cipher_key)
+            .map_err(|e| {
+            AppError::InternalError(format!("Failed to encrypt passphrase: {}", e))
+        })?;
 
         // Create wallet in database
         let wallet = self
@@ -112,7 +112,7 @@ impl Services {
     /// Create or retrieve an account for a wallet with derived keys
     pub async fn create_or_get_account(
         &self,
-        req: CreateAccountRequest,
+        req: GetAccountRequest,
     ) -> Result<AccountResponse, AppError> {
         // Check if wallet exists
         let wallet = self
@@ -138,7 +138,7 @@ impl Services {
 
         // Decrypt the wallet's passphrase
         let decrypted_passphrase =
-            crypto::decrypt_passphrase(&wallet.encrypted_passphrase, &self.cipher_key).map_err(
+            crypto::decrypt_secret(&wallet.encrypted_passphrase, &self.cipher_key).map_err(
                 |e| AppError::InternalError(format!("Failed to decrypt passphrase: {}", e)),
             )?;
 
@@ -151,7 +151,7 @@ impl Services {
         .map_err(|e| AppError::InternalError(format!("Failed to derive account keys: {}", e)))?;
 
         // Encrypt the derived private key
-        let encrypted_private_key = crypto::encrypt_passphrase(&private_key_hex, &self.cipher_key)
+        let encrypted_private_key = crypto::encrypt_secret(&private_key_hex, &self.cipher_key)
             .map_err(|e| {
                 AppError::InternalError(format!("Failed to encrypt private key: {}", e))
             })?;
@@ -290,7 +290,7 @@ mod tests {
         let wallet_resp = handler.create_wallet(wallet_req).await.unwrap();
 
         // Now create an account
-        let account_req = CreateAccountRequest {
+        let account_req = GetAccountRequest {
             wallet_id: wallet_resp.wallet_id,
             account_index: 0,
             chain_type: Bitcoin,
@@ -329,7 +329,7 @@ mod tests {
         let wallet_resp = handler.create_wallet(wallet_req).await.unwrap();
 
         // Create account first time
-        let account_req1 = CreateAccountRequest {
+        let account_req1 = GetAccountRequest {
             wallet_id: wallet_resp.wallet_id,
             account_index: 0,
             chain_type: Bitcoin,
@@ -337,7 +337,7 @@ mod tests {
         let acc1 = handler.create_or_get_account(account_req1).await.unwrap();
 
         // Try to create same account again
-        let account_req2 = CreateAccountRequest {
+        let account_req2 = GetAccountRequest {
             wallet_id: wallet_resp.wallet_id,
             account_index: 0,
             chain_type: Bitcoin,
@@ -366,7 +366,7 @@ mod tests {
         let handler = Services::new(db, "test_cipher_key".to_string());
 
         // Try to create account for non-existent wallet
-        let account_req = CreateAccountRequest {
+        let account_req = GetAccountRequest {
             wallet_id: 999,
             account_index: 0,
             chain_type: Bitcoin,
@@ -399,7 +399,7 @@ mod tests {
         let wallet_resp = handler.create_wallet(wallet_req).await.unwrap();
 
         // Create Ethereum account
-        let account_req = CreateAccountRequest {
+        let account_req = GetAccountRequest {
             wallet_id: wallet_resp.wallet_id,
             account_index: 0,
             chain_type: Ethereum,

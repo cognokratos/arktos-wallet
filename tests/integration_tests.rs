@@ -1,7 +1,7 @@
 use arktos_wallet::models::ChainType::{Bitcoin, Ethereum};
 use arktos_wallet::{
     db::Database,
-    services::{CreateAccountRequest, CreateWalletRequest, Services},
+    services::{CreateWalletRequest, GetAccountRequest, Services},
 };
 use std::sync::Arc;
 use tempfile::TempDir;
@@ -98,7 +98,7 @@ async fn test_wallet_and_account_creation_integration() {
     let wallet_id = wallet_resp.wallet_id;
 
     // Step 2: Create Bitcoin account (should derive keys and store in DB)
-    let btc_account_req = CreateAccountRequest {
+    let btc_account_req = GetAccountRequest {
         wallet_id,
         account_index: 0,
         chain_type: Bitcoin,
@@ -114,7 +114,7 @@ async fn test_wallet_and_account_creation_integration() {
     assert!(!btc_account.public_key.is_empty());
 
     // Step 3: Create Ethereum account
-    let eth_account_req = CreateAccountRequest {
+    let eth_account_req = GetAccountRequest {
         wallet_id,
         account_index: 0,
         chain_type: Ethereum,
@@ -136,7 +136,7 @@ async fn test_wallet_and_account_creation_integration() {
     );
 
     // Step 5: Create another Bitcoin account with different index
-    let btc_account_idx1_req = CreateAccountRequest {
+    let btc_account_idx1_req = GetAccountRequest {
         wallet_id,
         account_index: 1,
         chain_type: Bitcoin,
