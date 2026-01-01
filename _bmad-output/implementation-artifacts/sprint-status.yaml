@@ -10,7 +10,7 @@ stories:
     status: "done"
   - id: "Story 1.2"
     description: "Implement Secure Multi-Account Management"
-    status: "not_started"
+    status: "done"
   - id: "Story 1.3"
     description: "Implement API Key Authentication for MCP Client Requests"
     status: "not_started"
