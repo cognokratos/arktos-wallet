@@ -1,5 +1,5 @@
 use arktos_wallet::{
-    api_handlers::{ApiHandlers, CreateWalletRequest},
+    services::{Services, CreateWalletRequest},
     db::Database,
 };
 use std::sync::Arc;
@@ -18,7 +18,7 @@ async fn test_create_wallet_integration() {
     let db =
         Arc::new(Database::new(&db_path, "test_cipher_key").expect("Failed to create database"));
 
-    let handler = ApiHandlers::new(db, "test_cipher_key".to_string());
+    let handler = Services::new(db, "test_cipher_key".to_string());
 
     let req = CreateWalletRequest {
         wallet_name: "IntegrationTestWallet".to_string(),
@@ -46,7 +46,7 @@ async fn test_wallet_persistence_after_creation() {
             Database::new(&db_path, "test_cipher_key").expect("Failed to create database"),
         );
 
-        let handler = ApiHandlers::new(db, "test_cipher_key".to_string());
+        let handler = Services::new(db, "test_cipher_key".to_string());
 
         let req = CreateWalletRequest {
             wallet_name: "PersistenceTest".to_string(),

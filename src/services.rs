@@ -1,10 +1,14 @@
+use std::fmt;
+use std::fmt::Display;
 use crate::{crypto, db::Database, error::AppError, wallet_manager};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use schemars::JsonSchema;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct CreateWalletRequest {
+    #[schemars(description = "The name of the wallet to be created.")]
     pub wallet_name: String,
 }
 
@@ -15,12 +19,22 @@ pub struct CreateWalletResponse {
     pub created_at: String,
 }
 
-pub struct ApiHandlers {
+impl Display for CreateWalletResponse {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "Wallet Created: ID={}, Name={}, CreatedAt={}",
+            self.wallet_id, self.wallet_name, self.created_at
+        )
+    }
+}
+
+pub struct Services {
     db: Arc<Database>,
     cipher_key: String,
 }
 
-impl ApiHandlers {
+impl Services {
     pub fn new(db: Arc<Database>, cipher_key: String) -> Self {
         Self { db, cipher_key }
     }
@@ -97,7 +111,7 @@ mod tests {
             Database::new(&db_path, "test_cipher_key").expect("Failed to create database"),
         );
 
-        let handler = ApiHandlers::new(db, "test_cipher_key".to_string());
+        let handler = Services::new(db, "test_cipher_key".to_string());
         let req = CreateWalletRequest {
             wallet_name: "MyWallet".to_string(),
         };
@@ -123,7 +137,7 @@ mod tests {
             Database::new(&db_path, "test_cipher_key").expect("Failed to create database"),
         );
 
-        let handler = ApiHandlers::new(db, "test_cipher_key".to_string());
+        let handler = Services::new(db, "test_cipher_key".to_string());
         let req = CreateWalletRequest {
             wallet_name: "".to_string(),
         };
@@ -146,7 +160,7 @@ mod tests {
             Database::new(&db_path, "test_cipher_key").expect("Failed to create database"),
         );
 
-        let handler = ApiHandlers::new(db, "test_cipher_key".to_string());
+        let handler = Services::new(db, "test_cipher_key".to_string());
 
         let req1 = CreateWalletRequest {
             wallet_name: "MyWallet".to_string(),

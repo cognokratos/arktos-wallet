@@ -78,7 +78,7 @@ N/A (This is a backend API project with no direct user interface).
 Standard Rust testing with `cargo test`. Unit and integration tests will be written using Rust's built-in testing capabilities.
 
 **Code Organization:**
-Starts with a `src/main.rs` as the main entry point. As the project evolves, modularization will occur using Rust's module and crate system (e.g., `src/wallet_manager.rs`, `src/api_handlers.rs`, etc.).
+Starts with a `src/main.rs` as the main entry point. As the project evolves, modularization will occur using Rust's module and crate system (e.g., `src/wallet_manager.rs`, `src/services.rs`, etc.).
 
 **Development Experience:**
 Standard Rust development workflow using `cargo check`, `cargo fmt`, `cargo clippy` for code quality, and IDE integrations for debugging. `cargo watch` can be used for automatic recompilation during development.
@@ -189,7 +189,7 @@ Standard Rust development workflow using `cargo check`, `cargo fmt`, `cargo clip
 -   **Rust Idiomatic Conventions:**
     -   `snake_case` for function and variable names (`get_user_data`, `user_id`).
     -   `PascalCase` for type names (structs, enums, traits) (`Wallet`, `WalletError`).
-    -   `snake_case` for module and file names (`wallet_manager.rs`, `api_handlers.rs`).
+    -   `snake_case` for module and file names (`wallet_manager.rs`, `services.rs`).
     -   `SCREAMING_SNAKE_CASE` for constants (`MAX_WALLETS`).
 
 ### Structure Patterns
@@ -197,7 +197,7 @@ Standard Rust development workflow using `cargo check`, `cargo fmt`, `cargo clip
 **Project Organization:**
 -   **Standard Rust `src/` and `tests/` structure with feature-based modules:**
     -   `src/main.rs` as entry point.
-    -   Logical concerns (e.g., `src/wallet_manager.rs`, `src/api_handlers.rs`, `src/db.rs`, `src/auth.rs`) as distinct modules within `src/`.
+    -   Logical concerns (e.g., `src/wallet_manager.rs`, `src/services.rs`, `src/db.rs`, `src/auth.rs`) as distinct modules within `src/`.
     -   Unit tests (`#[cfg(test)]`) co-located with modules.
     -   Integration tests in top-level `tests/` directory.
     -   Shared utilities in `src/utils/`.
@@ -304,7 +304,7 @@ const MAX_WALLETS: usize = 10_000;
 │   ├── wallet_manager.rs       # Core business logic for wallet/account management, key derivation
 │   ├── db.rs                   # Database connection pooling, `rusqlite` interactions
 │   ├── auth.rs                 # API key authentication and ownership-based authorization logic
-│   ├── api_handlers.rs         # Axum handlers for HTTP routes, MCP tool dispatching, early validation
+│   ├── services.rs             # Application services, MCP tool dispatching, early validation
 │   ├── error.rs                # Custom error types (`thiserror`), RFC 7807 Problem Details conversion
 │   ├── models.rs               # Data structures (Wallet, Account), `serde` definitions
 │   ├── utils.rs                # General utility functions (e.g., cryptographic helpers)
@@ -318,7 +318,7 @@ const MAX_WALLETS: usize = 10_000;
 
 **API Boundaries:**
 -   External: HTTP MCP endpoint (`/mcp`) for AI agent interactions, `/healthz` for health checks.
--   Internal: `api_handlers` module acts as the boundary for all incoming requests, handling deserialization, early validation, authentication, and dispatching to business logic.
+-   Internal: `services` module acts as the boundary for all incoming requests, handling deserialization, early validation, authentication, and dispatching to business logic.
 
 **Component Boundaries:**
 -   `wallet_manager`: Encapsulates core business logic for wallet creation, key derivation, and state updates. It interacts with the `db` and `auth` modules.
@@ -341,16 +341,16 @@ const MAX_WALLETS: usize = 10_000;
 -   **Wallet Management (FR1-FR4, FR7):** Primarily handled by `src/wallet_manager.rs` (business logic), `src/db.rs` (persistence), `src/models.rs` (data structures).
 -   **Address Management (FR5-FR7):** `src/wallet_manager.rs` (derivation logic), `src/utils.rs` (cryptographic helpers), `src/models.rs`.
 -   **Security & Data Handling (FR8-FR11):** `src/auth.rs` (API key auth, ownership), `src/db.rs` (SQLCipher config), `src/config.rs` (loading secure settings), `src/error.rs` (secure error handling), security middleware in `src/main.rs`.
--   **API & Integration (FR12-FR16):** `src/api_handlers.rs` (Axum routes, MCP tools), `src/auth.rs`, `src/error.rs`, `src/config.rs`.
+-   **API & Integration (FR12-FR16):** `src/services.rs` (App services, MCP tools), `src/auth.rs`, `src/error.rs`, `src/config.rs`.
 -   **System Operations (FR17-FR18):** `Dockerfile`, `.github/workflows/ci.yml`, `Makefile`, `src/main.rs`.
 -   **Documentation & Extensibility (FR19-FR23):** `docs/` directory, `README.md`, `rustdoc` via doc comments in all `src/` modules.
 
 **Cross-Cutting Concerns:**
 -   **Security:** Enforced across `src/auth.rs`, `src/db.rs`, `src/config.rs`, `src/error.rs`, and middleware in `src/main.rs`.
--   **Performance/Scalability:** Supported by stateless design (primarily in `src/wallet_manager.rs`, `src/api_handlers.rs`), Dockerization (`Dockerfile`), and horizontal scaling.
+-   **Performance/Scalability:** Supported by stateless design (primarily in `src/wallet_manager.rs`, `src/services.rs`), Dockerization (`Dockerfile`), and horizontal scaling.
 -   **Observability (Logging/Auditing):** Centralized in `src/telemetry.rs` (tracing setup) and integrated throughout the application logic.
 -   **Error Handling:** Consolidated in `src/error.rs` and used across all modules returning `Result`.
--   **Validation:** Primarily in `src/api_handlers.rs` (early validation) and potentially within `src/wallet_manager.rs` for deeper business logic checks.
+-   **Validation:** Primarily in `src/services.rs` (early validation) and potentially within `src/wallet_manager.rs` for deeper business logic checks.
 
 ### Integration Points
 
@@ -358,11 +358,11 @@ const MAX_WALLETS: usize = 10_000;
 -   Components communicate primarily through **direct function calls**, leveraging Rust's module system for visibility and encapsulation. State is passed via `Arc<T>` and `axum::Extension`.
 
 **External Integrations:**
--   **MCP Client:** Interacts via the HTTP MCP endpoint (`/mcp`) exposed by `src/main.rs` and handled by `src/api_handlers.rs`.
+-   **MCP Client:** Interacts via the HTTP MCP endpoint (`/mcp`) exposed by `src/main.rs` and handled by `src/services.rs`.
 -   **Database:** `src/db.rs` manages interaction with the SQLite database file.
 
 **Data Flow:**
--   Incoming requests (`src/main.rs` -> `src/api_handlers.rs`) are validated, authenticated (`src/auth.rs`), and then passed to business logic (`src/wallet_manager.rs`). Business logic interacts with the database (`src/db.rs`) and cryptographic utilities (`src/utils.rs`). Responses are formatted and returned (`src/api_handlers.rs` -> `src/main.rs`).
+-   Incoming requests (`src/main.rs` -> `src/services.rs`) are validated, authenticated (`src/auth.rs`), and then passed to business logic (`src/wallet_manager.rs`). Business logic interacts with the database (`src/db.rs`) and cryptographic utilities (`src/utils.rs`). Responses are formatted and returned (`src/services.rs` -> `src/main.rs`).
 
 ### File Organization Patterns
 
@@ -374,7 +374,7 @@ const MAX_WALLETS: usize = 10_000;
 
 **Source Organization:**
 -   **`src/main.rs`**: The main application binary entry point.
--   **Feature-based Modules in `src/`**: Logical concerns (e.g., `wallet_manager`, `db`, `auth`, `api_handlers`, `error`, `models`, `utils`, `telemetry`) are separated into their own `.rs` files under `src/`. This provides modularity and separation of concerns.
+-   **Feature-based Modules in `src/`**: Logical concerns (e.g., `wallet_manager`, `db`, `auth`, `services`, `error`, `models`, `utils`, `telemetry`) are separated into their own `.rs` files under `src/`. This provides modularity and separation of concerns.
 
 **Test Organization:**
 -   **Unit Tests (`#[cfg(test)]`)**: Co-located within their respective `src/` modules, typically in an inner `mod tests { ... }` block.

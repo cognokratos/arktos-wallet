@@ -30,8 +30,8 @@ so that I can manage funds for a system owner.
   - [x] Subtask 2.2: Implement secure storage of wallet name and encrypted passphrase into SQLite via `src/db.rs`. (FR3, FR9, FR11, NFR5)
   - [x] Subtask 2.3: Define `Wallet` and `Account` data structures in `src/models.rs`.
 - [x] **Task 3: Expose `create_wallet` as MCP Tool (AC: 1, 2)**
-  - [x] Subtask 3.1: Define the `create_wallet` tool with `snake_case` naming and `camelCase` JSON fields as per API design in `src/api_handlers.rs` (utilizing `rmcp` and `schemars`). (FR12, FR15)
-  - [x] Subtask 3.2: Create the Axum handler for the `/mcp` route in `src/main.rs` (or `src/api_handlers.rs`) to dispatch MCP requests.
+  - [x] Subtask 3.1: Define the `create_wallet` tool with `snake_case` naming and `camelCase` JSON fields as per API design in `src/services.rs` (utilizing `rmcp` and `schemars`). (FR12, FR15)
+  - [x] Subtask 3.2: Create the Axum handler for the `/mcp` route in `src/main.rs` (or `src/services.rs`) to dispatch MCP requests.
   - [x] Subtask 3.3: Ensure robust input validation is implemented at the API boundary. (NFR9)
 - [ ] **Task 4: Performance and Security Enforcement (AC: 5, 6)**
   - [ ] Subtask 4.1: Optimize database interactions in `src/db.rs` to meet the 500ms response time NFR. (NFR1, NFR4)
@@ -51,12 +51,12 @@ so that I can manage funds for a system owner.
 
 -   **Source tree components to touch**:
     -   `Cargo.toml`: For adding new dependencies.
-    -   `src/main.rs`: Application entry point, server setup, and potentially MCP dispatch (or delegate to `api_handlers.rs`).
+    -   `src/main.rs`: Application entry point, server setup, and potentially MCP dispatch (or delegate to `services.rs`).
     -   `src/config.rs`: For managing configuration related to database connection or cryptographic parameters.
     -   `src/models.rs`: To define `Wallet` and `Account` data structures.
     -   `src/db.rs`: To manage database connections, schema, and interaction logic (e.g., `create_wallet` database operation).
     -   `src/wallet_manager.rs`: To house the core business logic for wallet generation and key derivation.
-    -   `src/api_handlers.rs`: To define the `create_wallet` MCP tool and its HTTP handler.
+    -   `src/services.rs`: To define the `create_wallet` MCP tool and its HTTP handler.
     -   `src/error.rs`: For consistent error handling using `Result<T, E>` and `RFC 7807` problem details.
     -   `src/telemetry.rs`: For setting up structured logging with `tracing`.
     -   `db/migrations/`: To add SQL migration scripts for the initial `wallets` and `accounts` tables using `refinery`.
@@ -68,7 +68,7 @@ so that I can manage funds for a system owner.
 
 ### Project Structure Notes
 
--   Adhere to the defined project structure: `src/main.rs` as entry, with feature-based modules (`wallet_manager.rs`, `db.rs`, `api_handlers.rs`, etc.) for logical separation.
+-   Adhere to the defined project structure: `src/main.rs` as entry, with feature-based modules (`wallet_manager.rs`, `db.rs`, `services.rs`, etc.) for logical separation.
 -   Database migrations will reside in `db/migrations/`.
 -   Configuration will be handled by `src/config.rs`, loading from Environment Variables.
 
@@ -109,7 +109,7 @@ Claude 3.5 Sonnet
 - 2 integration tests passing for complete wallet lifecycle
 
 **Implementation Summary:**
-- Created 5 new source modules: wallet_manager.rs, db.rs, models.rs, error.rs, crypto.rs, api_handlers.rs
+- Created 5 new source modules: wallet_manager.rs, db.rs, models.rs, error.rs, crypto.rs, services.rs
 - Implemented passphrase encryption using Keccak-256 hash-based XOR cipher
 - SQLCipher configured for AES-256 database encryption at rest
 - Comprehensive test coverage: 14 unit tests + 2 integration tests (16 total, 100% passing)
@@ -130,7 +130,7 @@ Claude 3.5 Sonnet
 - `src/db.rs` - SQLCipher encrypted database operations (4 tests)
 - `src/error.rs` - Error handling for MCP ErrorData conversion
 - `src/crypto.rs` - Keccak-256 encryption/decryption utilities (3 tests)
-- `src/api_handlers.rs` - CreateWallet business logic and validation (3 tests)
+- `src/services.rs` - CreateWallet business logic and validation (3 tests)
 - `tests/integration_tests.rs` - End-to-end integration tests (2 tests)
 
 **Modified Files:**
