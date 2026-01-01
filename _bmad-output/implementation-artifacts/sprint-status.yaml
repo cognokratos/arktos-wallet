@@ -7,7 +7,7 @@ status: "in_progress"
 stories:
   - id: "Story 1.1"
     description: "Implement `create_wallet` MCP Tool"
-    status: "review"
+    status: "done"
   - id: "Story 1.2"
     description: "Implement Secure Multi-Account Management"
     status: "not_started"
