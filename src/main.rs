@@ -1,8 +1,10 @@
-use arktos_wallet::{services::Services, db::Database};
+use arktos_wallet::config::Config;
+use arktos_wallet::services::CreateWalletRequest;
+use arktos_wallet::{db::Database, services::Services};
 use axum::{Router, routing::get};
+use rmcp::handler::server::wrapper::Parameters;
 use rmcp::{
-    ServerHandler,
-    ErrorData,
+    ErrorData, ServerHandler,
     handler::server::router::tool::ToolRouter,
     model::{ServerCapabilities, ServerInfo},
     tool, tool_handler, tool_router,
@@ -11,13 +13,10 @@ use rmcp::{
         StreamableHttpService, session::local::LocalSessionManager,
     },
 };
-use std::{net::SocketAddr, sync::Arc, time::Duration};
-use rmcp::handler::server::wrapper::Parameters;
 use schemars::_private::NoSerialize;
+use std::{net::SocketAddr, sync::Arc, time::Duration};
 use tokio_util::sync::CancellationToken;
 use tracing_subscriber::EnvFilter;
-use arktos_wallet::config::Config;
-use arktos_wallet::services::{CreateWalletRequest};
 
 #[derive(Clone)]
 struct App {
@@ -39,7 +38,10 @@ impl App {
         Ok("pong".to_string())
     }
 
-    #[tool(name = "create_wallet", description = "Create a new wallet with encrypted recovery passphrase.")]
+    #[tool(
+        name = "create_wallet",
+        description = "Create a new wallet with encrypted recovery passphrase."
+    )]
     async fn create_wallet(
         &self,
         Parameters(req): Parameters<CreateWalletRequest>,
@@ -48,7 +50,12 @@ impl App {
             .create_wallet(req)
             .await
             .map(|r| r.to_string())
-            .map_err(|e| ErrorData::internal_error(format!("Failed to create wallet: {}", e), e.maybe_to_value()))
+            .map_err(|e| {
+                ErrorData::internal_error(
+                    format!("Failed to create wallet: {}", e),
+                    e.maybe_to_value(),
+                )
+            })
     }
 }
 

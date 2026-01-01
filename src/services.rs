@@ -1,10 +1,10 @@
-use std::fmt;
-use std::fmt::Display;
 use crate::{crypto, db::Database, error::AppError, wallet_manager};
 use anyhow::Result;
-use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
+use std::fmt;
+use std::fmt::Display;
+use std::sync::Arc;
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct CreateWalletRequest {

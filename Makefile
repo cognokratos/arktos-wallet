@@ -12,10 +12,13 @@ help:
 	@echo "  format: Format the code using cargo fmt"
 
 dev:
-	RUST_LOG=debug cargo run
+	cargo run
 
 test:
 	cargo test
 
 format:
 	cargo fmt
+	cargo check
+	cargo clippy
+

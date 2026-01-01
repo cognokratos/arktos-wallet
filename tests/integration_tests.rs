@@ -1,6 +1,6 @@
 use arktos_wallet::{
-    services::{Services, CreateWalletRequest},
     db::Database,
+    services::{CreateWalletRequest, Services},
 };
 use std::sync::Arc;
 use tempfile::TempDir;
