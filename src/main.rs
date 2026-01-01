@@ -1,6 +1,10 @@
+use arktos_wallet::config::Config;
+use arktos_wallet::services::CreateWalletRequest;
+use arktos_wallet::{db::Database, services::Services};
 use axum::{Router, routing::get};
+use rmcp::handler::server::wrapper::Parameters;
 use rmcp::{
-    ServerHandler,
+    ErrorData, ServerHandler,
     handler::server::router::tool::ToolRouter,
     model::{ServerCapabilities, ServerInfo},
     tool, tool_handler, tool_router,
@@ -9,26 +13,49 @@ use rmcp::{
         StreamableHttpService, session::local::LocalSessionManager,
     },
 };
-use std::{net::SocketAddr, time::Duration};
+use schemars::_private::NoSerialize;
+use std::{net::SocketAddr, sync::Arc, time::Duration};
 use tokio_util::sync::CancellationToken;
 use tracing_subscriber::EnvFilter;
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 struct App {
     tool_router: ToolRouter<App>,
+    services: Arc<Services>,
 }
 
 #[tool_router]
 impl App {
-    pub fn new() -> Self {
+    pub fn new(services: Arc<Services>) -> Self {
         Self {
             tool_router: Self::tool_router(),
+            services,
         }
     }
 
     #[tool(name = "ping", description = "Return a simple liveness response.")]
-    async fn ping(&self) -> Result<String, rmcp::ErrorData> {
+    async fn ping(&self) -> Result<String, ErrorData> {
         Ok("pong".to_string())
+    }
+
+    #[tool(
+        name = "create_wallet",
+        description = "Create a new wallet with encrypted recovery passphrase."
+    )]
+    async fn create_wallet(
+        &self,
+        Parameters(req): Parameters<CreateWalletRequest>,
+    ) -> Result<String, ErrorData> {
+        self.services
+            .create_wallet(req)
+            .await
+            .map(|r| r.to_string())
+            .map_err(|e| {
+                ErrorData::internal_error(
+                    format!("Failed to create wallet: {}", e),
+                    e.maybe_to_value(),
+                )
+            })
     }
 }
 
@@ -36,7 +63,7 @@ impl App {
 impl ServerHandler for App {
     fn get_info(&self) -> ServerInfo {
         ServerInfo {
-            instructions: Some("Example MCP server over Streamable HTTP".into()),
+            instructions: Some("Arktos MCP server over Streamable HTTP".into()),
             capabilities: ServerCapabilities::builder().enable_tools().build(),
             ..Default::default()
         }
@@ -49,17 +76,26 @@ async fn main() -> anyhow::Result<()> {
         .with_env_filter(EnvFilter::from_default_env())
         .init();
 
+    // Initialize database with SQLCipher encryption
+    let config = Config::from_env();
+    let cipher_key = config.cipher_key;
+    let db_path = config.db_path;
+
+    let db = Arc::new(Database::new(&db_path, &cipher_key)?);
+    let services = Arc::new(Services::new(db, cipher_key));
+
     // Cancellation token shared with MCP transport for graceful shutdown.
     let ct = CancellationToken::new();
 
     let mcp_service = StreamableHttpService::new(
-        || Ok(App::new()),
+        {
+            let services = services.clone();
+            move || Ok(App::new(services.clone()))
+        },
         LocalSessionManager::default().into(),
         StreamableHttpServerConfig {
             cancellation_token: ct.child_token(),
-            // Optional SSE keep-alive ping cadence (useful behind proxies)
             sse_keep_alive: Some(Duration::from_secs(15)),
-            // "true" enables session-based behavior for streamable HTTP
             stateful_mode: true,
         },
     );

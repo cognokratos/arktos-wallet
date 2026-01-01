@@ -87,7 +87,7 @@ This document provides a concise overview of the project's technical landscape, 
 
 -   **Project Organization:** Standard Rust `src/` and `tests/` structure with feature-based modules.
     -   `src/main.rs`: Application entry point.
-    -   Modules within `src/` organized by concern: `config.rs`, `wallet_manager.rs`, `db.rs`, `auth.rs`, `api_handlers.rs`, `error.rs`, `models.rs`, `utils.rs`, `telemetry.rs`.
+    -   Modules within `src/` organized by concern: `config.rs`, `wallet_manager.rs`, `db.rs`, `auth.rs`, `services.rs`, `error.rs`, `models.rs`, `utils.rs`, `telemetry.rs`.
     -   Unit tests: Co-located (`#[cfg(test)]`) within `src/` modules.
     -   Integration tests: Top-level `tests/` directory (`tests/integration_tests.rs`, `tests/common/`).
     -   Shared utilities: `src/utils/`.

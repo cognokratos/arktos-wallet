@@ -1,5 +1,8 @@
 .idea
 
+data
+.env
+
 /target
 
 # OS
