@@ -13,7 +13,7 @@ stories:
     status: "done"
   - id: "Story 1.3"
     description: "Implement API Key Authentication for MCP Client Requests"
-    status: "not_started"
+    status: "ready-for-dev"
   - id: "Story 1.4"
     description: "Implement Initial Dockerization and Rust Project Structure"
     status: "not_started"
