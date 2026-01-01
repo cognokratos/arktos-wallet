@@ -1,6 +1,6 @@
 # Story 1.2: Implement Secure Multi-Account Management
 
-Status: review
+Status: done
 
 ## Story
 
