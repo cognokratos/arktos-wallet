@@ -48,6 +48,16 @@ impl Database {
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (wallet_id) REFERENCES wallets(id),
                 UNIQUE(wallet_id, account_index, chain_type)
+            );
+            
+            CREATE TABLE IF NOT EXISTS api_keys (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                wallet_id INTEGER NOT NULL,
+                key_hash TEXT UNIQUE NOT NULL,
+                client_name TEXT NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                is_revoked BOOLEAN DEFAULT 0,
+                FOREIGN KEY (wallet_id) REFERENCES wallets(id)
             );",
         )
         .context("Failed to create schema")?;
@@ -213,6 +223,78 @@ impl Database {
             .optional()
             .context("Failed to query account")?;
         Ok(account)
+    }
+
+    /// Create a new API key for a wallet
+    pub fn create_api_key(&self, wallet_id: i64, client_name: &str, key_hash: &str) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+
+        conn.execute(
+            "INSERT INTO api_keys (wallet_id, key_hash, client_name) VALUES (?1, ?2, ?3)",
+            params![wallet_id, key_hash, client_name],
+        )
+        .context("Failed to create API key")?;
+
+        Ok(())
+    }
+
+    /// Validate an API key and return wallet_id and client_name if valid
+    pub fn validate_api_key(&self, key_hash: &str) -> Result<Option<(i64, String)>> {
+        let conn = self.conn.lock().unwrap();
+
+        let mut stmt = conn
+            .prepare(
+                "SELECT wallet_id, client_name FROM api_keys 
+                 WHERE key_hash = ?1 AND is_revoked = 0",
+            )
+            .context("Failed to prepare statement")?;
+
+        let result = stmt
+            .query_row(params![key_hash], |row| Ok((row.get(0)?, row.get(1)?)))
+            .optional()
+            .context("Failed to query API key")?;
+
+        Ok(result)
+    }
+
+    /// Revoke an API key
+    pub fn revoke_api_key(&self, key_hash: &str) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+
+        conn.execute(
+            "UPDATE api_keys SET is_revoked = 1 WHERE key_hash = ?1",
+            params![key_hash],
+        )
+        .context("Failed to revoke API key")?;
+
+        Ok(())
+    }
+
+    /// List all API keys for a wallet (excluding revoked keys)
+    pub fn list_api_keys(&self, wallet_id: i64) -> Result<Vec<(String, String, String, bool)>> {
+        let conn = self.conn.lock().unwrap();
+
+        let mut stmt = conn
+            .prepare(
+                "SELECT key_hash, client_name, created_at, is_revoked FROM api_keys 
+                 WHERE wallet_id = ?1 ORDER BY created_at DESC",
+            )
+            .context("Failed to prepare statement")?;
+
+        let keys = stmt
+            .query_map(params![wallet_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, bool>(3)?,
+                ))
+            })
+            .context("Failed to query API keys")?
+            .collect::<Result<Vec<_>, _>>()
+            .context("Failed to collect API keys")?;
+
+        Ok(keys)
     }
 }
 

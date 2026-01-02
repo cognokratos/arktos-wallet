@@ -37,6 +37,42 @@ pub struct AccountResponse {
     pub created_at: String,
 }
 
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct CreateApiKeyRequest {
+    #[schemars(description = "The wallet ID associated with this API key")]
+    pub wallet_id: i64,
+    #[schemars(description = "The name of the client using this API key")]
+    pub client_name: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CreateApiKeyResponse {
+    pub client_name: String,
+    pub api_key: String,
+    pub created_at: String,
+}
+
+impl Display for CreateApiKeyResponse {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "API Key Created: Client={}, CreatedAt={}, Key={}",
+            self.client_name, self.created_at, self.api_key
+        )
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct RevokeApiKeyRequest {
+    #[schemars(description = "The API key to revoke")]
+    pub api_key: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RevokeApiKeyResponse {
+    pub message: String,
+}
+
 impl Display for CreateWalletResponse {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
@@ -176,6 +212,66 @@ impl Services {
             chain_type: account.chain_type,
             created_at: account.created_at,
         })
+    }
+
+    /// Create a new API key for a wallet
+    pub fn create_api_key(
+        &self,
+        wallet_id: i64,
+        client_name: &str,
+    ) -> anyhow::Result<crate::models::ApiKey> {
+        let key = crate::auth::generate_api_key();
+        let key_hash = crate::auth::hash_api_key(&key);
+
+        self.db.create_api_key(wallet_id, client_name, &key_hash)?;
+
+        let keys = self.db.list_api_keys(wallet_id)?;
+        let created_key = keys
+            .iter()
+            .find(|(hash, _, _, _)| hash == &key_hash)
+            .ok_or_else(|| anyhow::anyhow!("Failed to retrieve created API key"))?;
+
+        Ok(crate::models::ApiKey {
+            id: 0,
+            wallet_id,
+            key: key.clone(),
+            key_hash: created_key.0.clone(),
+            client_name: created_key.1.clone(),
+            created_at: created_key.2.clone(),
+            is_revoked: created_key.3,
+        })
+    }
+
+    /// Validate an API key and return wallet_id and client_name if valid
+    pub fn validate_api_key(&self, raw_key: &str) -> anyhow::Result<(i64, String)> {
+        let key_hash = crate::auth::hash_api_key(raw_key);
+        let result = self.db.validate_api_key(&key_hash)?;
+        result.ok_or_else(|| anyhow::anyhow!("Invalid or revoked API key"))
+    }
+
+    /// Revoke an API key
+    pub fn revoke_api_key(&self, raw_key: &str) -> anyhow::Result<()> {
+        let key_hash = crate::auth::hash_api_key(raw_key);
+        self.db.revoke_api_key(&key_hash)?;
+        Ok(())
+    }
+
+    /// List all API keys for a wallet
+    pub fn list_api_keys(
+        &self,
+        wallet_id: i64,
+    ) -> anyhow::Result<Vec<crate::models::ApiKeyResponse>> {
+        let keys = self.db.list_api_keys(wallet_id)?;
+        Ok(keys
+            .into_iter()
+            .map(
+                |(_, client_name, created_at, is_revoked)| crate::models::ApiKeyResponse {
+                    client_name,
+                    created_at,
+                    is_revoked,
+                },
+            )
+            .collect())
     }
 }
 

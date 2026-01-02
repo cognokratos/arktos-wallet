@@ -48,3 +48,21 @@ pub struct Account {
     pub chain_type: ChainType,
     pub created_at: String,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct ApiKey {
+    pub id: i64,
+    pub wallet_id: i64,
+    pub key: String,
+    pub key_hash: String,
+    pub client_name: String,
+    pub created_at: String,
+    pub is_revoked: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct ApiKeyResponse {
+    pub client_name: String,
+    pub created_at: String,
+    pub is_revoked: bool,
+}

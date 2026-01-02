@@ -1,5 +1,5 @@
 use arktos_wallet::config::Config;
-use arktos_wallet::services::CreateWalletRequest;
+use arktos_wallet::services::{CreateApiKeyRequest, CreateWalletRequest, RevokeApiKeyRequest};
 use arktos_wallet::{db::Database, services::Services};
 use axum::{Router, routing::get};
 use rmcp::handler::server::wrapper::Parameters;
@@ -55,6 +55,43 @@ impl App {
                     format!("Failed to create wallet: {}", e),
                     e.maybe_to_value(),
                 )
+            })
+    }
+
+    #[tool(
+        name = "create_api_key",
+        description = "Create a new API key for authenticating MCP client requests to a specific wallet."
+    )]
+    async fn create_api_key(
+        &self,
+        Parameters(req): Parameters<CreateApiKeyRequest>,
+    ) -> Result<String, ErrorData> {
+        self.services
+            .create_api_key(req.wallet_id, &req.client_name)
+            .map(|api_key| {
+                format!(
+                    "API Key Created: Client={}, CreatedAt={}, Key={}",
+                    api_key.client_name, api_key.created_at, api_key.key
+                )
+            })
+            .map_err(|e| {
+                ErrorData::internal_error(format!("Failed to create API key: {}", e), None)
+            })
+    }
+
+    #[tool(
+        name = "revoke_api_key",
+        description = "Revoke an existing API key to prevent further access."
+    )]
+    async fn revoke_api_key(
+        &self,
+        Parameters(req): Parameters<RevokeApiKeyRequest>,
+    ) -> Result<String, ErrorData> {
+        self.services
+            .revoke_api_key(&req.api_key)
+            .map(|_| "API key successfully revoked".to_string())
+            .map_err(|e| {
+                ErrorData::internal_error(format!("Failed to revoke API key: {}", e), None)
             })
     }
 }
