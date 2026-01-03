@@ -20,7 +20,7 @@ help:
 	@echo "  hash <input>: Hash the provided input"
 
 dev:
-	@cargo run --bin arktos-wallet
+	@RUST_LOG=debug cargo run --bin arktos-wallet
 
 build:
 	@docker build -t arktos-wallet .
@@ -37,7 +37,8 @@ format:
 	@cargo clippy
 
 fix:
-	@cargo fix --allow-dirty --allow-staged
+	@cargo clippy --fix --allow-dirty
+	@cargo fix --allow-dirty
 
 sql:
 	@sqlcipher "$(DATABASE_PATH)" -cmd "PRAGMA key = '$$DATABASE_KEY';"

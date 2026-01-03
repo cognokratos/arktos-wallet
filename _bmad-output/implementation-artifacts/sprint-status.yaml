@@ -17,3 +17,6 @@ stories:
   - id: "Story 1.4"
     description: "Implement Initial Dockerization and Rust Project Structure"
     status: "done"
+  - id: "Story 1.5"
+    description: "Document Project as an Open-Source, Customizable Blueprint"
+    status: "done"
