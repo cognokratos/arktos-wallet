@@ -16,4 +16,4 @@ stories:
     status: "done"
   - id: "Story 1.4"
     description: "Implement Initial Dockerization and Rust Project Structure"
-    status: "ready-for-dev"
+    status: "review"

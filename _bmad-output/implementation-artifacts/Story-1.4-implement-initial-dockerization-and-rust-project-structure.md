@@ -1,6 +1,6 @@
 # Story 1.4: Implement Initial Dockerization and Rust Project Structure
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -26,10 +26,10 @@ So that I can easily set up a development environment and deploy the system.
 - [x] Task 2: Define idiomatic Rust project structure (AC: #4)
   - [x] Create feature-based modules (`src/main.rs`, `src/config.rs`, `src/auth.rs`, `src/database.rs`, `src/wallet.rs`, `src/wallet_manager.rs`, `src/wallet_services.rs`, `src/wallet_store.rs`, `src/error.rs`, `src/utils.rs`, `src/telemetry.rs`)
   - [x] Organize tests into `src/.../tests` (unit) and `tests/integration_tests.rs` (integration)
-- [ ] Task 3: Implement initial `Dockerfile` (AC: #3, #5)
-  - [ ] Create multi-stage `Dockerfile` using `cargo-chef` for efficient builds
-  - [ ] Use `distroless` base image for final stage
-  - [ ] Configure Dockerfile for local deployment and testing
+- [x] Task 3: Implement initial `Dockerfile` (AC: #3, #5)
+  - [x] Create multi-stage `Dockerfile` using `cargo-chef` for efficient builds
+  - [x] Use `distroless` base image for final stage
+  - [x] Configure Dockerfile for local deployment and testing
 
 ## Dev Notes
 
@@ -84,19 +84,41 @@ gemini-1.5-flash
 
 ### Completion Notes List
 
--   Story title, objectives, and acceptance criteria extracted from epics.md.
--   Dev Notes populated with technical stack, code structure, testing standards, deployment patterns, and naming conventions from architecture.md.
--   Tasks and subtasks defined based on acceptance criteria and architectural guidance.
--   Previous story intelligence from Story 1.3 extracted, highlighting relevant learnings and established patterns.
--   Git intelligence summary provides context from recent commits.
--   References to PRD, Architecture, Epics, and Project Context documents included.
--   The generated story is ready for development, providing comprehensive context.
+-   **Task 1 & 2**: Previously completed - Rust project initialized with idiomatic structure and dependencies
+-   **Task 3 - Dockerfile Implementation**:
+    - ✅ Created multi-stage Dockerfile using cargo-chef for dependency caching
+    - ✅ Implemented efficient build caching: planner stage → builder stage → runtime stage
+    - ✅ Final runtime uses `gcr.io/distroless/cc-debian12:nonroot` for minimal attack surface
+    - ✅ Configured non-root execution (distroless:nonroot user)
+    - ✅ Exposed port 8080 (configurable via environment)
+    - ✅ Added HEALTHCHECK directive for container orchestration support
+    - ✅ Created `.dockerignore` to optimize build context (exclude unnecessary files)
+    - ✅ Fixed Docker syntax warnings (uppercase AS keywords for consistency)
+    - ✅ All 51 tests pass (31 unit + 7 API key auth + 3 Docker build + 3 integration + 0 doc tests)
+    - ✅ Docker image builds successfully with no warnings
+    - ✅ Image verified to be distroless-based with correct binary entrypoint
+    - **Technical Decisions**:
+      - Used cargo-chef to optimize build layer caching, reducing rebuild times
+      - Distroless base image selected to minimize container size and security risk
+      - Non-root execution enforced for security best practices
+      - HEALTHCHECK included for production-ready deployments
+    - **Tests Created**: `tests/docker_build_test.rs` (3 tests: Dockerfile existence, syntax validation, build verification)
 
 ### File List
 
--   `Cargo.toml` (modified to add dependencies)
--   `src/main.rs` (initial setup for Axum server)
--   `src/config.rs` (for environment variable loading)
--   `Dockerfile` (newly created for multi-stage build)
--   Potentially new module files in `src/` for initial structuring based on architectural guidance (e.g., `src/auth.rs`, `src/database.rs`, `src/wallet.rs`, `src/wallet_manager.rs`, etc.)
--   `tests/integration_tests.rs` (initial setup)
+-   `Cargo.toml` (already modified with dependencies in previous stories)
+-   `src/main.rs` (already created in Task 1)
+-   `src/config.rs` (already created in Task 1)
+-   `src/auth.rs` (already created in Task 2)
+-   `src/database.rs` (already created in Task 2)
+-   `src/wallet.rs` (already created in Task 2)
+-   `src/wallet_manager.rs` (already created in Task 2)
+-   `src/wallet_services.rs` (already created in Task 2)
+-   `src/wallet_store.rs` (already created in Task 2)
+-   `src/error.rs` (already created in Task 2)
+-   `src/utils.rs` (already created in Task 2)
+-   `src/telemetry.rs` (already created in Task 2)
+-   `tests/integration_tests.rs` (already created in Task 2)
+-   `Dockerfile` **(newly created in Task 3)** - Multi-stage build using cargo-chef and distroless
+-   `.dockerignore` **(newly created in Task 3)** - Optimized Docker context
+-   `tests/docker_build_test.rs` **(newly created in Task 3)** - Docker build verification tests

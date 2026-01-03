@@ -3,11 +3,13 @@ include .env
 export
 endif
 
-.PHONY: help dev test format fix sql secret encrypt decrypt
+.PHONY: help dev build run test format fix sql secret encrypt decrypt
 
 help:
 	@echo "Available targets:"
 	@echo "  dev: Start the development server"
+	@echo "  build: Build the Docker image"
+	@echo "  run: Run the Docker container"
 	@echo "  test: Run the test suite"
 	@echo "  format: Format the code and check for linting issues"
 	@echo "  fix: Automatically fix linting issues"
@@ -15,9 +17,16 @@ help:
 	@echo "  secret: Generate a new 32-byte hex secret"
 	@echo "  encrypt <plaintext>: Encrypt the provided plaintext"
 	@echo "  decrypt <ciphertext>: Decrypt the provided ciphertext"
+	@echo "  hash <input>: Hash the provided input"
 
 dev:
 	@cargo run --bin arktos-wallet
+
+build:
+	@docker build -t arktos-wallet .
+
+run:
+	@docker run -it --rm --name arktos-wallet -p 8080:8080 -v ./infra/data:/data --env-file infra/.env arktos-wallet
 
 test:
 	@cargo test
