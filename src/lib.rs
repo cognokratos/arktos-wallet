@@ -1,7 +1,13 @@
+pub mod api_key;
+pub mod auth;
 pub mod config;
 pub mod crypto;
-pub mod db;
+pub mod database;
 pub mod error;
-pub mod models;
-pub mod services;
+pub mod key_services;
+pub mod key_store;
+pub mod mcp;
+pub mod wallet;
 pub mod wallet_manager;
+pub mod wallet_services;
+pub mod wallet_store;

@@ -1,0 +1,31 @@
+### List all API keys
+GET {{API_URL}}/admin/api-keys
+X-API-KEY: {{ADMIN_API_KEY}}
+Accept: application/json
+
+### Create a new API key
+POST {{API_URL}}/admin/api-keys
+X-API-KEY: {{ADMIN_API_KEY}}
+Content-Type: application/json
+
+{
+  "name": "My New API Key"
+}
+
+> {% client.global.set("apiKey", response.body.api_key); %}
+
+### Revoke an API key
+POST {{API_URL}}/admin/api-keys/1/revoke
+X-API-KEY: {{ADMIN_API_KEY}}
+Content-Type: application/json
+
+{}
+
+### Rotate an API key
+POST {{API_URL}}/admin/api-keys/1/rotate
+X-API-KEY: {{ADMIN_API_KEY}}
+Content-Type: application/json
+
+{}
+
+> {% client.global.set("apiKey", response.body.api_key); %}

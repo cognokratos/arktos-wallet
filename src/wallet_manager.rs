@@ -1,4 +1,4 @@
-use crate::models::ChainType;
+use crate::wallet::ChainType;
 use anyhow::{Result, anyhow};
 use bip32::{DerivationPath, XPrv};
 use bip39::Mnemonic;
@@ -53,7 +53,7 @@ pub fn derive_account_keys(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::ChainType::{Bitcoin, Ethereum};
+    use crate::wallet::ChainType::{Bitcoin, Ethereum};
 
     #[test]
     fn test_generate_recovery_passphrase_returns_string() {

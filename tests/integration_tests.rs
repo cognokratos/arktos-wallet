@@ -1,7 +1,9 @@
-use arktos_wallet::models::ChainType::{Bitcoin, Ethereum};
+use arktos_wallet::key_services::KeyServices;
+use arktos_wallet::wallet::ChainType::{Bitcoin, Ethereum};
+use arktos_wallet::wallet_store::WalletStore;
 use arktos_wallet::{
-    db::Database,
-    services::{CreateWalletRequest, GetAccountRequest, Services},
+    database::Database,
+    wallet_services::{CreateWalletRequest, GetAccountRequest, WalletServices},
 };
 use std::sync::Arc;
 use tempfile::TempDir;
@@ -18,14 +20,16 @@ async fn test_create_wallet_integration() {
 
     let db =
         Arc::new(Database::new(&db_path, "test_cipher_key").expect("Failed to create database"));
+    let key_services = KeyServices::new(db.clone(), "secret".to_string());
+    let services = WalletServices::new(db, "test_cipher_key".to_string());
 
-    let handler = Services::new(db, "test_cipher_key".to_string());
-
+    let api_key = key_services.create("IntegrationTestAPIKey").await.unwrap();
+    let api_key = key_services.validate(&api_key).await.unwrap();
     let req = CreateWalletRequest {
         wallet_name: "IntegrationTestWallet".to_string(),
     };
 
-    let response = handler.create_wallet(req).await;
+    let response = services.create_wallet(&api_key, req).await;
     assert!(response.is_ok(), "Wallet creation should succeed");
 
     let resp = response.unwrap();
@@ -42,18 +46,23 @@ async fn test_wallet_persistence_after_creation() {
         .unwrap()
         .to_string();
 
+    let db =
+        Arc::new(Database::new(&db_path, "test_cipher_key").expect("Failed to create database"));
+    let key_services = KeyServices::new(db, "secret".to_string());
+    let api_key = key_services.create("IntegrationTestAPIKey").await.unwrap();
+    let api_key = key_services.validate(&api_key).await.unwrap();
+
     {
         let db = Arc::new(
             Database::new(&db_path, "test_cipher_key").expect("Failed to create database"),
         );
-
-        let handler = Services::new(db, "test_cipher_key".to_string());
+        let services = WalletServices::new(db, "test_cipher_key".to_string());
 
         let req = CreateWalletRequest {
             wallet_name: "PersistenceTest".to_string(),
         };
 
-        let response = handler.create_wallet(req).await;
+        let response = services.create_wallet(&api_key, req).await;
         assert!(response.is_ok());
     }
 
@@ -63,8 +72,10 @@ async fn test_wallet_persistence_after_creation() {
             Database::new(&db_path, "test_cipher_key").expect("Failed to create database"),
         );
 
-        let wallet = db
-            .get_wallet("PersistenceTest")
+        let wallet_store = WalletStore::new(db.clone());
+
+        let wallet = wallet_store
+            .get_wallet(api_key.id, "PersistenceTest")
             .expect("Should retrieve wallet")
             .expect("Wallet should exist");
 
@@ -84,15 +95,18 @@ async fn test_wallet_and_account_creation_integration() {
 
     let db =
         Arc::new(Database::new(&db_path, "test_cipher_key").expect("Failed to create database"));
+    let key_services = KeyServices::new(db.clone(), "secret".to_string());
+    let services = WalletServices::new(db.clone(), "test_cipher_key".to_string());
 
-    let handler = Services::new(db.clone(), "test_cipher_key".to_string());
+    let api_key = key_services.create("IntegrationTestAPIKey").await.unwrap();
+    let api_key = key_services.validate(&api_key).await.unwrap();
 
     // Step 1: Create wallet
     let wallet_req = CreateWalletRequest {
         wallet_name: "MultiAccountWallet".to_string(),
     };
-    let wallet_resp = handler
-        .create_wallet(wallet_req)
+    let wallet_resp = services
+        .create_wallet(&api_key, wallet_req)
         .await
         .expect("Failed to create wallet");
     let wallet_id = wallet_resp.wallet_id;
@@ -103,8 +117,8 @@ async fn test_wallet_and_account_creation_integration() {
         account_index: 0,
         chain_type: Bitcoin,
     };
-    let btc_account = handler
-        .create_or_get_account(btc_account_req)
+    let btc_account = services
+        .create_or_get_account(&api_key, btc_account_req)
         .await
         .expect("Failed to create Bitcoin account");
 
@@ -119,8 +133,8 @@ async fn test_wallet_and_account_creation_integration() {
         account_index: 0,
         chain_type: Ethereum,
     };
-    let eth_account = handler
-        .create_or_get_account(eth_account_req)
+    let eth_account = services
+        .create_or_get_account(&api_key, eth_account_req)
         .await
         .expect("Failed to create Ethereum account");
 
@@ -141,8 +155,8 @@ async fn test_wallet_and_account_creation_integration() {
         account_index: 1,
         chain_type: Bitcoin,
     };
-    let btc_account_idx1 = handler
-        .create_or_get_account(btc_account_idx1_req)
+    let btc_account_idx1 = services
+        .create_or_get_account(&api_key, btc_account_idx1_req)
         .await
         .expect("Failed to create second Bitcoin account");
 
@@ -152,8 +166,10 @@ async fn test_wallet_and_account_creation_integration() {
         "Different account indices should have different keys"
     );
 
+    let wallet_store = WalletStore::new(db.clone());
+
     // Step 7: Verify accounts are persisted in database
-    let stored_account = db
+    let stored_account = wallet_store
         .get_account(wallet_id, 0, &Bitcoin)
         .expect("Failed to query account")
         .expect("Account should exist in database");
