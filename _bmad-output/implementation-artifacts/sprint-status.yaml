@@ -3,7 +3,9 @@ sprint_number: 1
 sprint_goal: "Deliver a secure, containerized wallet creation service with API key authentication, establishing the core of the Arktos Wallet."
 start_date: "2025-12-30"
 end_date: "2026-01-13" # Assuming a two-week sprint
-status: "in_progress"
+status: "completed"
+development_status:
+  epic-1-retrospective: "done"
 stories:
   - id: "Story 1.1"
     description: "Implement `create_wallet` MCP Tool"
