@@ -1,58 +1,144 @@
-use axum::http::HeaderMap;
-use rand::Rng;
-use sha2::{Digest, Sha256};
+use crate::api_key::ApiKey;
+use crate::key_store::KeyStore;
+use axum::Json;
+use axum::body::Body;
+use axum::extract::{Path, State};
+use axum::http::{Request, StatusCode};
+use axum::middleware::Next;
+use axum::response::IntoResponse;
+use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
-/// Generate a cryptographically secure random API key
-pub fn generate_api_key() -> String {
-    const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ\
-                             abcdefghijklmnopqrstuvwxyz\
-                             0123456789\
-                             -_";
-    let mut rng = rand::thread_rng();
-    (0..32)
-        .map(|_| {
-            let idx = rng.gen_range(0..CHARSET.len());
-            CHARSET[idx] as char
-        })
-        .collect()
+#[derive(Clone)]
+pub struct AppState {
+    pub key_store: Arc<KeyStore>,
+    pub admin_api_key: String,
 }
 
-/// Hash an API key using SHA256
-pub fn hash_api_key(key: &str) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(key.as_bytes());
-    format!("{:x}", hasher.finalize())
+pub async fn admin_auth(
+    State(state): State<AppState>,
+    req: Request<Body>,
+    next: Next,
+) -> impl IntoResponse {
+    let api_key = req.headers().get("x-api-key").and_then(|v| v.to_str().ok());
+
+    if let Some(api_key) = api_key {
+        if api_key == state.admin_api_key {
+            // Proceed to the next middleware/handler
+            next.run(req).await
+        } else {
+            (
+                StatusCode::UNAUTHORIZED,
+                "Unauthorized: Invalid admin API key",
+            )
+                .into_response()
+        }
+    } else {
+        (
+            StatusCode::UNAUTHORIZED,
+            "Unauthorized: Missing admin API key",
+        )
+            .into_response()
+    }
 }
 
-/// Extract API key from request headers
-pub fn extract_api_key(headers: &HeaderMap) -> Option<String> {
-    headers
-        .get("x-api-key")
-        .and_then(|h| h.to_str().ok())
-        .map(|s| s.to_string())
+pub async fn api_key_auth(
+    State(state): State<AppState>,
+    mut req: Request<Body>,
+    next: Next,
+) -> impl IntoResponse {
+    let api_key = req.headers().get("x-api-key").and_then(|v| v.to_str().ok());
+
+    if let Some(api_key) = api_key {
+        if let Ok(api_key) = state.key_store.validate(api_key).await {
+            // Proceed to the next middleware/handler
+            req.extensions_mut().insert(api_key);
+            next.run(req).await
+        } else {
+            (StatusCode::UNAUTHORIZED, "Unauthorized: Invalid API key").into_response()
+        }
+    } else {
+        (
+            StatusCode::UNAUTHORIZED,
+            "Unauthorized: Invalid or missing API key",
+        )
+            .into_response()
+    }
+}
+
+#[derive(Deserialize)]
+pub struct CreateApiKeyRequest {
+    pub name: String,
+}
+
+#[derive(Serialize)]
+pub struct NewApiKeyResponse {
+    pub api_key: String,
+}
+
+pub async fn create_api_key(
+    State(state): State<AppState>,
+    Json(payload): Json<CreateApiKeyRequest>,
+) -> Json<NewApiKeyResponse> {
+    let api_key = state.key_store.create(&payload.name).await.unwrap();
+    Json(NewApiKeyResponse { api_key })
+}
+
+pub async fn rotate_api_key(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Json<NewApiKeyResponse> {
+    let new_api_key = state.key_store.rotate(id).await.unwrap();
+    Json(NewApiKeyResponse {
+        api_key: new_api_key,
+    })
+}
+
+#[derive(Serialize)]
+pub struct ListApiKeysResponse {
+    pub api_keys: Vec<ApiKey>,
+}
+
+pub async fn list_api_keys(State(state): State<AppState>) -> Json<ListApiKeysResponse> {
+    let api_keys = state.key_store.list().await.unwrap(); // Replace with actual fetching logic
+    Json(ListApiKeysResponse { api_keys })
+}
+
+#[derive(Deserialize)]
+pub struct RevokeApiKeyRequest {
+    pub api_key: String,
+}
+
+pub async fn revoke_api_key(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> impl IntoResponse {
+    state.key_store.revoke(id).await.unwrap();
+    (StatusCode::OK, "API key revoked").into_response()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::http::HeaderMap;
 
     #[test]
     fn test_generate_api_key_length() {
-        let key = generate_api_key();
-        assert_eq!(key.len(), 32);
+        let key = ApiKey::generate();
+        assert_eq!(key.len(), 43);
     }
 
     #[test]
     fn test_generate_api_key_uniqueness() {
-        let key1 = generate_api_key();
-        let key2 = generate_api_key();
+        let key1 = ApiKey::generate();
+        let key2 = ApiKey::generate();
         assert_ne!(key1, key2);
     }
 
     #[test]
     fn test_hash_api_key() {
         let key = "test_key_12345";
-        let hash = hash_api_key(key);
+        let hash = ApiKey::hash(key);
         assert!(!hash.is_empty());
         assert_ne!(hash, key);
         assert_eq!(hash.len(), 64); // SHA256 produces 64 hex characters
@@ -61,8 +147,8 @@ mod tests {
     #[test]
     fn test_hash_api_key_deterministic() {
         let key = "test_key_12345";
-        let hash1 = hash_api_key(key);
-        let hash2 = hash_api_key(key);
+        let hash1 = ApiKey::hash(key);
+        let hash2 = ApiKey::hash(key);
         assert_eq!(hash1, hash2);
     }
 
@@ -71,14 +157,14 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert("x-api-key", "test_key_value".parse().unwrap());
 
-        let key = extract_api_key(&headers);
+        let key = ApiKey::extract(&headers);
         assert_eq!(key, Some("test_key_value".to_string()));
     }
 
     #[test]
     fn test_extract_api_key_missing() {
         let headers = HeaderMap::new();
-        let key = extract_api_key(&headers);
+        let key = ApiKey::extract(&headers);
         assert_eq!(key, None);
     }
 }

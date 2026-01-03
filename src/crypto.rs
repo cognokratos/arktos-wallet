@@ -1,39 +1,64 @@
-use anyhow::Result;
-use tiny_keccak::{Hasher, Keccak};
+use aes_gcm::{
+    Aes256Gcm, Nonce,
+    aead::{Aead, KeyInit},
+};
+use anyhow::{Context, Result, anyhow};
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD as B64, Engine as _};
+use rand::RngCore;
+use rand::rngs::OsRng;
+use sha2::{Digest, Sha256};
 
-/// Simple encryption using Keccak hash-based XOR cipher for demonstration
-/// Production systems should use proper AES-256 encryption
-pub fn encrypt_secret(secret: &str, key: &str) -> Result<String> {
-    let mut hasher = Keccak::v256();
-    hasher.update(key.as_bytes());
-    let mut key_hash = [0u8; 32];
-    hasher.finalize(&mut key_hash);
+const NONCE_LEN: usize = 12;
 
-    let passphrase_bytes = secret.as_bytes();
-    let mut encrypted = Vec::new();
-
-    for (i, byte) in passphrase_bytes.iter().enumerate() {
-        encrypted.push(byte ^ key_hash[i % 32]);
-    }
-
-    Ok(hex::encode(&encrypted))
+fn derive_aes256_key(key: &str) -> [u8; 32] {
+    let digest = Sha256::digest(key.as_bytes());
+    let mut out = [0u8; 32];
+    out.copy_from_slice(&digest);
+    out
 }
 
-/// Decrypt a passphrase encrypted with the corresponding key
-pub fn decrypt_secret(encrypted: &str, key: &str) -> Result<String> {
-    let mut hasher = Keccak::v256();
-    hasher.update(key.as_bytes());
-    let mut key_hash = [0u8; 32];
-    hasher.finalize(&mut key_hash);
+/// Encrypts `secret` using AES-256-GCM.
+/// Returns base64( nonce(12) || ciphertext+tag ).
+pub fn encrypt_secret(secret: &str, key: &str) -> Result<String> {
+    let key_bytes = derive_aes256_key(key);
+    let cipher = Aes256Gcm::new_from_slice(&key_bytes).expect("AES-256 key must be 32 bytes");
 
-    let encrypted_bytes = hex::decode(encrypted)?;
-    let mut decrypted = Vec::new();
+    let mut nonce_bytes = [0u8; NONCE_LEN];
+    OsRng.fill_bytes(&mut nonce_bytes);
+    let nonce = Nonce::from(nonce_bytes);
 
-    for (i, byte) in encrypted_bytes.iter().enumerate() {
-        decrypted.push(byte ^ key_hash[i % 32]);
+    let mut ct_and_tag = cipher
+        .encrypt(&nonce, secret.as_bytes())
+        .map_err(|e| anyhow!("encrypt failed: {e:?}"))?;
+
+    let mut out = Vec::with_capacity(NONCE_LEN + ct_and_tag.len());
+    out.extend_from_slice(&nonce_bytes);
+    out.append(&mut ct_and_tag);
+
+    Ok(B64.encode(out))
+}
+
+/// Decrypts base64( nonce || ciphertext+tag ) using AES-256-GCM.
+pub fn decrypt_secret(encrypted_b64: &str, key: &str) -> Result<String> {
+    let blob = B64
+        .decode(encrypted_b64.trim())
+        .context("base64 decode failed")?;
+
+    if blob.len() < NONCE_LEN + 16 {
+        return Err(anyhow!("ciphertext too short"));
     }
 
-    Ok(String::from_utf8(decrypted)?)
+    let (nonce_bytes, ct_and_tag) = blob.split_at(NONCE_LEN);
+
+    let key_bytes = derive_aes256_key(key);
+    let cipher = Aes256Gcm::new_from_slice(&key_bytes).expect("AES-256 key must be 32 bytes");
+    let nonce = Nonce::try_from(nonce_bytes).expect("nonce length must be 12 bytes");
+
+    let pt = cipher
+        .decrypt(&nonce, ct_and_tag)
+        .map_err(|_| anyhow!("decrypt failed (wrong key or tampered ciphertext)"))?;
+
+    String::from_utf8(pt).context("utf8 decode failed")
 }
 
 #[cfg(test)]

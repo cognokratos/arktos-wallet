@@ -2,6 +2,7 @@
 
 data
 .env
+examples/http-client.private.env.json
 
 /target
 

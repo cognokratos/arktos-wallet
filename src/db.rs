@@ -31,11 +31,21 @@ impl Database {
 
     fn create_schema(conn: &Connection) -> Result<()> {
         conn.execute_batch(
-            "CREATE TABLE IF NOT EXISTS wallets (
+            "CREATE TABLE IF NOT EXISTS api_keys (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                key_hash TEXT UNIQUE NOT NULL,
+                key_name TEXT NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                is_revoked BOOLEAN DEFAULT 0
+            );
+
+            CREATE TABLE IF NOT EXISTS wallets (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                key_id INTEGER NOT NULL,
                 name TEXT UNIQUE NOT NULL,
                 encrypted_passphrase TEXT NOT NULL,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (key_id) REFERENCES api_keys(id)
             );
             
             CREATE TABLE IF NOT EXISTS accounts (
@@ -48,16 +58,6 @@ impl Database {
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (wallet_id) REFERENCES wallets(id),
                 UNIQUE(wallet_id, account_index, chain_type)
-            );
-            
-            CREATE TABLE IF NOT EXISTS api_keys (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                wallet_id INTEGER NOT NULL,
-                key_hash TEXT UNIQUE NOT NULL,
-                client_name TEXT NOT NULL,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                is_revoked BOOLEAN DEFAULT 0,
-                FOREIGN KEY (wallet_id) REFERENCES wallets(id)
             );",
         )
         .context("Failed to create schema")?;
@@ -65,12 +65,17 @@ impl Database {
     }
 
     /// Create a wallet with encrypted passphrase
-    pub fn create_wallet(&self, name: &str, encrypted_passphrase: &str) -> Result<Wallet> {
+    pub fn create_wallet(
+        &self,
+        key_id: i64,
+        name: &str,
+        encrypted_passphrase: &str,
+    ) -> Result<Wallet> {
         let conn = self.conn.lock().unwrap();
 
         conn.execute(
-            "INSERT INTO wallets (name, encrypted_passphrase) VALUES (?1, ?2)",
-            params![name, encrypted_passphrase],
+            "INSERT INTO wallets (key_id, name, encrypted_passphrase) VALUES (?1, ?2, ?3)",
+            params![key_id, name, encrypted_passphrase],
         )
         .context("Failed to insert wallet")?;
 
@@ -85,17 +90,17 @@ impl Database {
     }
 
     /// Get wallet by name
-    pub fn get_wallet(&self, name: &str) -> Result<Option<Wallet>> {
+    pub fn get_wallet(&self, key_id: i64, name: &str) -> Result<Option<Wallet>> {
         let conn = self.conn.lock().unwrap();
 
         let mut stmt = conn
             .prepare(
-                "SELECT id, name, encrypted_passphrase, created_at FROM wallets WHERE name = ?1",
+                "SELECT id, name, encrypted_passphrase, created_at FROM wallets WHERE key_id = ?1 AND name = ?2",
             )
-            .context("Failed to prepare statement")?;
+            .context("Failed to prepare GET_WALLET statement")?;
 
         let wallet = stmt
-            .query_row(params![name], |row| {
+            .query_row(params![key_id, name], |row| {
                 Ok(Wallet {
                     id: row.get(0)?,
                     name: row.get(1)?,
@@ -110,15 +115,15 @@ impl Database {
     }
 
     /// Get wallet by ID
-    pub fn get_wallet_by_id(&self, id: i64) -> Result<Option<Wallet>> {
+    pub fn get_wallet_by_id(&self, key_id: i64, wallet_id: i64) -> Result<Option<Wallet>> {
         let conn = self.conn.lock().unwrap();
 
         let mut stmt = conn
-            .prepare("SELECT id, name, encrypted_passphrase, created_at FROM wallets WHERE id = ?1")
-            .context("Failed to prepare statement")?;
+            .prepare("SELECT id, name, encrypted_passphrase, created_at FROM wallets WHERE key_id = ?1 AND id = ?2")
+            .context("Failed to prepare GET_WALLET_BY_ID statement")?;
 
         let wallet = stmt
-            .query_row(params![id], |row| {
+            .query_row(params![key_id, wallet_id], |row| {
                 Ok(Wallet {
                     id: row.get(0)?,
                     name: row.get(1)?,
@@ -133,15 +138,15 @@ impl Database {
     }
 
     /// Get all wallets
-    pub fn list_wallets(&self) -> Result<Vec<Wallet>> {
+    pub fn list_wallets(&self, key_id: i64) -> Result<Vec<Wallet>> {
         let conn = self.conn.lock().unwrap();
 
         let mut stmt = conn.prepare(
-            "SELECT id, name, encrypted_passphrase, created_at FROM wallets ORDER BY created_at DESC"
-        ).context("Failed to prepare statement")?;
+            "SELECT id, name, encrypted_passphrase, created_at FROM wallets WHERE key_id = ?1 ORDER BY created_at DESC"
+        ).context("Failed to prepare LIST_WALLETS statement")?;
 
         let wallets = stmt
-            .query_map([], |row| {
+            .query_map(params![key_id], |row| {
                 Ok(Wallet {
                     id: row.get(0)?,
                     name: row.get(1)?,
@@ -201,7 +206,7 @@ impl Database {
                 "SELECT id, wallet_id, account_index, encrypted_private_key, public_key, chain_type, created_at 
                  FROM accounts WHERE wallet_id = ?1 AND account_index = ?2 AND chain_type = ?3",
             )
-            .context("Failed to prepare statement")?;
+            .context("Failed to prepare GET_ACCOUNT statement")?;
 
         let account = stmt
             .query_row(
@@ -226,16 +231,39 @@ impl Database {
     }
 
     /// Create a new API key for a wallet
-    pub fn create_api_key(&self, wallet_id: i64, client_name: &str, key_hash: &str) -> Result<()> {
+    pub fn create_api_key(&self, key_name: &str, key_hash: &str) -> Result<()> {
         let conn = self.conn.lock().unwrap();
-
         conn.execute(
-            "INSERT INTO api_keys (wallet_id, key_hash, client_name) VALUES (?1, ?2, ?3)",
-            params![wallet_id, key_hash, client_name],
+            "INSERT INTO api_keys (key_hash, key_name) VALUES (?1, ?2)",
+            params![key_hash, key_name],
         )
         .context("Failed to create API key")?;
-
         Ok(())
+    }
+
+    /// Rotate an API key by updating its hash
+    pub fn rotate_api_key(&self, key_id: i64, new_key_hash: &str) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE api_keys SET key_hash = ?1, is_revoked = 0 WHERE id = ?2",
+            params![new_key_hash, key_id],
+        )
+        .context("Failed to rotate API key")?;
+        Ok(())
+    }
+
+    /// List all API keys
+    pub fn list_api_keys(&self) -> Result<Vec<(i64, String, bool)>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn
+            .prepare("SELECT id, key_name, is_revoked FROM api_keys")
+            .context("Failed to prepare LIST_API_KEYS statement")?;
+        let api_keys = stmt
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+            .context("Failed to query API keys")?
+            .collect::<Result<Vec<(i64, String, bool)>, _>>()
+            .context("Failed to collect API keys")?;
+        Ok(api_keys)
     }
 
     /// Validate an API key and return wallet_id and client_name if valid
@@ -244,10 +272,10 @@ impl Database {
 
         let mut stmt = conn
             .prepare(
-                "SELECT wallet_id, client_name FROM api_keys 
+                "SELECT id, key_name FROM api_keys
                  WHERE key_hash = ?1 AND is_revoked = 0",
             )
-            .context("Failed to prepare statement")?;
+            .context("Failed to prepare VALIDATE_API_KEY statement")?;
 
         let result = stmt
             .query_row(params![key_hash], |row| Ok((row.get(0)?, row.get(1)?)))
@@ -258,43 +286,16 @@ impl Database {
     }
 
     /// Revoke an API key
-    pub fn revoke_api_key(&self, key_hash: &str) -> Result<()> {
+    pub fn revoke_api_key(&self, key_id: i64) -> Result<()> {
         let conn = self.conn.lock().unwrap();
 
         conn.execute(
-            "UPDATE api_keys SET is_revoked = 1 WHERE key_hash = ?1",
-            params![key_hash],
+            "UPDATE api_keys SET is_revoked = 1 WHERE id = ?1",
+            params![key_id],
         )
         .context("Failed to revoke API key")?;
 
         Ok(())
-    }
-
-    /// List all API keys for a wallet (excluding revoked keys)
-    pub fn list_api_keys(&self, wallet_id: i64) -> Result<Vec<(String, String, String, bool)>> {
-        let conn = self.conn.lock().unwrap();
-
-        let mut stmt = conn
-            .prepare(
-                "SELECT key_hash, client_name, created_at, is_revoked FROM api_keys 
-                 WHERE wallet_id = ?1 ORDER BY created_at DESC",
-            )
-            .context("Failed to prepare statement")?;
-
-        let keys = stmt
-            .query_map(params![wallet_id], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, bool>(3)?,
-                ))
-            })
-            .context("Failed to query API keys")?
-            .collect::<Result<Vec<_>, _>>()
-            .context("Failed to collect API keys")?;
-
-        Ok(keys)
     }
 }
 
@@ -315,8 +316,16 @@ mod tests {
             .to_string();
 
         let db = Database::new(&db_path, "test_key").expect("Failed to create database");
+
+        db.create_api_key("TestKey", "hash123")
+            .expect("Failed to create API key");
+        let (key_id, _) = db
+            .validate_api_key("hash123")
+            .expect("Failed to validate API key")
+            .unwrap();
+
         let wallet = db
-            .create_wallet("MyWallet", "encrypted_data")
+            .create_wallet(key_id, "MyWallet", "encrypted_data")
             .expect("Failed to create wallet");
 
         assert_eq!(wallet.name, "MyWallet");
@@ -334,10 +343,20 @@ mod tests {
             .to_string();
 
         let db = Database::new(&db_path, "test_key").expect("Failed to create database");
-        db.create_wallet("TestWallet", "encrypted_passphrase")
+
+        db.create_api_key("TestKey", "hash123")
+            .expect("Failed to create API key");
+        let (key_id, _) = db
+            .validate_api_key("hash123")
+            .expect("Failed to validate API key")
+            .unwrap();
+
+        db.create_wallet(key_id, "TestWallet", "encrypted_passphrase")
             .expect("Failed to create wallet");
 
-        let retrieved = db.get_wallet("TestWallet").expect("Failed to get wallet");
+        let retrieved = db
+            .get_wallet(key_id, "TestWallet")
+            .expect("Failed to get wallet");
 
         assert!(retrieved.is_some());
         assert_eq!(retrieved.unwrap().name, "TestWallet");
@@ -354,12 +373,20 @@ mod tests {
             .to_string();
 
         let db = Database::new(&db_path, "test_key").expect("Failed to create database");
-        db.create_wallet("Wallet1", "pass1")
+
+        db.create_api_key("TestKey", "hash123")
+            .expect("Failed to create API key");
+        let (key_id, _) = db
+            .validate_api_key("hash123")
+            .expect("Failed to validate API key")
+            .unwrap();
+
+        db.create_wallet(key_id, "Wallet1", "pass1")
             .expect("Failed to create wallet 1");
-        db.create_wallet("Wallet2", "pass2")
+        db.create_wallet(key_id, "Wallet2", "pass2")
             .expect("Failed to create wallet 2");
 
-        let wallets = db.list_wallets().expect("Failed to list wallets");
+        let wallets = db.list_wallets(key_id).expect("Failed to list wallets");
         assert_eq!(wallets.len(), 2);
     }
 
@@ -374,8 +401,16 @@ mod tests {
             .to_string();
 
         let db = Database::new(&db_path, "test_key").expect("Failed to create database");
+
+        db.create_api_key("TestKey", "hash123")
+            .expect("Failed to create API key");
+        let (key_id, _) = db
+            .validate_api_key("hash123")
+            .expect("Failed to validate API key")
+            .unwrap();
+
         let wallet = db
-            .create_wallet("WalletWithAccounts", "pass")
+            .create_wallet(key_id, "WalletWithAccounts", "pass")
             .expect("Failed to create wallet");
 
         let account = db
@@ -406,8 +441,16 @@ mod tests {
             .to_string();
 
         let db = Database::new(&db_path, "test_key").expect("Failed to create database");
+
+        db.create_api_key("TestKey", "hash123")
+            .expect("Failed to create API key");
+        let (key_id, _) = db
+            .validate_api_key("hash123")
+            .expect("Failed to validate API key")
+            .unwrap();
+
         let wallet = db
-            .create_wallet("TestWallet", "pass")
+            .create_wallet(key_id, "TestWallet", "pass")
             .expect("Failed to create wallet");
 
         db.create_account(wallet.id, 0, "key1", "pubkey1", &Bitcoin)
@@ -435,12 +478,20 @@ mod tests {
             .to_string();
 
         let db = Database::new(&db_path, "test_key").expect("Failed to create database");
+
+        db.create_api_key("TestKey", "hash123")
+            .expect("Failed to create API key");
+        let (key_id, _) = db
+            .validate_api_key("hash123")
+            .expect("Failed to validate API key")
+            .unwrap();
+
         let wallet = db
-            .create_wallet("TestWallet", "pass")
+            .create_wallet(key_id, "TestWallet", "pass")
             .expect("Failed to create wallet");
 
         let retrieved = db
-            .get_wallet_by_id(wallet.id)
+            .get_wallet_by_id(key_id, wallet.id)
             .expect("Failed to get wallet by id");
 
         assert!(retrieved.is_some());
@@ -459,7 +510,16 @@ mod tests {
 
         let db = Database::new(&db_path, "test_key").expect("Failed to create database");
 
-        let retrieved = db.get_wallet_by_id(999).expect("Failed to query wallet");
+        db.create_api_key("TestKey", "hash123")
+            .expect("Failed to create API key");
+        let (key_id, _) = db
+            .validate_api_key("hash123")
+            .expect("Failed to validate API key")
+            .unwrap();
+
+        let retrieved = db
+            .get_wallet_by_id(key_id, 999)
+            .expect("Failed to query wallet");
 
         assert!(retrieved.is_none());
     }

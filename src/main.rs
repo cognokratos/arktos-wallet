@@ -1,111 +1,23 @@
+use arktos_wallet::auth::{
+    AppState, admin_auth, api_key_auth, create_api_key, list_api_keys, revoke_api_key,
+    rotate_api_key,
+};
 use arktos_wallet::config::Config;
-use arktos_wallet::services::{CreateApiKeyRequest, CreateWalletRequest, RevokeApiKeyRequest};
+use arktos_wallet::key_store::KeyStore;
+use arktos_wallet::mcp::McpServer;
 use arktos_wallet::{db::Database, services::Services};
+use axum::middleware::from_fn_with_state;
+use axum::routing::post;
 use axum::{Router, routing::get};
-use rmcp::handler::server::wrapper::Parameters;
 use rmcp::{
-    ErrorData, ServerHandler,
-    handler::server::router::tool::ToolRouter,
-    model::{ServerCapabilities, ServerInfo},
-    tool, tool_handler, tool_router,
     transport::StreamableHttpServerConfig,
     transport::streamable_http_server::{
         StreamableHttpService, session::local::LocalSessionManager,
     },
 };
-use schemars::_private::NoSerialize;
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 use tokio_util::sync::CancellationToken;
 use tracing_subscriber::EnvFilter;
-
-#[derive(Clone)]
-struct App {
-    tool_router: ToolRouter<App>,
-    services: Arc<Services>,
-}
-
-#[tool_router]
-impl App {
-    pub fn new(services: Arc<Services>) -> Self {
-        Self {
-            tool_router: Self::tool_router(),
-            services,
-        }
-    }
-
-    #[tool(name = "ping", description = "Return a simple liveness response.")]
-    async fn ping(&self) -> Result<String, ErrorData> {
-        Ok("pong".to_string())
-    }
-
-    #[tool(
-        name = "create_wallet",
-        description = "Create a new wallet with encrypted recovery passphrase."
-    )]
-    async fn create_wallet(
-        &self,
-        Parameters(req): Parameters<CreateWalletRequest>,
-    ) -> Result<String, ErrorData> {
-        self.services
-            .create_wallet(req)
-            .await
-            .map(|r| r.to_string())
-            .map_err(|e| {
-                ErrorData::internal_error(
-                    format!("Failed to create wallet: {}", e),
-                    e.maybe_to_value(),
-                )
-            })
-    }
-
-    #[tool(
-        name = "create_api_key",
-        description = "Create a new API key for authenticating MCP client requests to a specific wallet."
-    )]
-    async fn create_api_key(
-        &self,
-        Parameters(req): Parameters<CreateApiKeyRequest>,
-    ) -> Result<String, ErrorData> {
-        self.services
-            .create_api_key(req.wallet_id, &req.client_name)
-            .map(|api_key| {
-                format!(
-                    "API Key Created: Client={}, CreatedAt={}, Key={}",
-                    api_key.client_name, api_key.created_at, api_key.key
-                )
-            })
-            .map_err(|e| {
-                ErrorData::internal_error(format!("Failed to create API key: {}", e), None)
-            })
-    }
-
-    #[tool(
-        name = "revoke_api_key",
-        description = "Revoke an existing API key to prevent further access."
-    )]
-    async fn revoke_api_key(
-        &self,
-        Parameters(req): Parameters<RevokeApiKeyRequest>,
-    ) -> Result<String, ErrorData> {
-        self.services
-            .revoke_api_key(&req.api_key)
-            .map(|_| "API key successfully revoked".to_string())
-            .map_err(|e| {
-                ErrorData::internal_error(format!("Failed to revoke API key: {}", e), None)
-            })
-    }
-}
-
-#[tool_handler]
-impl ServerHandler for App {
-    fn get_info(&self) -> ServerInfo {
-        ServerInfo {
-            instructions: Some("Arktos MCP server over Streamable HTTP".into()),
-            capabilities: ServerCapabilities::builder().enable_tools().build(),
-            ..Default::default()
-        }
-    }
-}
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -115,11 +27,14 @@ async fn main() -> anyhow::Result<()> {
 
     // Initialize database with SQLCipher encryption
     let config = Config::from_env();
-    let cipher_key = config.cipher_key;
-    let db_path = config.db_path;
 
-    let db = Arc::new(Database::new(&db_path, &cipher_key)?);
-    let services = Arc::new(Services::new(db, cipher_key));
+    let db = Arc::new(Database::new(&config.db_path, &config.db_key)?);
+    let services = Arc::new(Services::new(db.clone(), config.secret_key));
+    let key_store = Arc::new(KeyStore::new(db.clone()));
+    let app_state = AppState {
+        key_store,
+        admin_api_key: config.admin_key,
+    };
 
     // Cancellation token shared with MCP transport for graceful shutdown.
     let ct = CancellationToken::new();
@@ -127,7 +42,7 @@ async fn main() -> anyhow::Result<()> {
     let mcp_service = StreamableHttpService::new(
         {
             let services = services.clone();
-            move || Ok(App::new(services.clone()))
+            move || Ok(McpServer::new(services.clone()))
         },
         LocalSessionManager::default().into(),
         StreamableHttpServerConfig {
@@ -137,9 +52,21 @@ async fn main() -> anyhow::Result<()> {
         },
     );
 
+    let admin_routes = Router::new()
+        .route("/api-keys", get(list_api_keys).post(create_api_key))
+        .route("/api-keys/{id}/revoke", post(revoke_api_key))
+        .route("/api-keys/{id}/rotate", post(rotate_api_key))
+        .layer(from_fn_with_state(app_state.clone(), admin_auth));
+
+    let mcp_routes = Router::new()
+        .nest_service("/mcp", mcp_service)
+        .layer(from_fn_with_state(app_state.clone(), api_key_auth));
+
     let app = Router::new()
         .route("/healthz", get(|| async { "OK" }))
-        .nest_service("/mcp", mcp_service);
+        .nest("/admin", admin_routes)
+        .merge(mcp_routes)
+        .with_state(app_state);
 
     let addr: SocketAddr = "0.0.0.0:8080".parse()?;
     tracing::info!("Listening on http://{addr}");

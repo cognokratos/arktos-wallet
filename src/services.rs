@@ -1,3 +1,4 @@
+use crate::api_key::ApiKey;
 use crate::models::ChainType;
 use crate::{crypto, db::Database, error::AppError, wallet_manager};
 use anyhow::Result;
@@ -20,6 +21,16 @@ pub struct CreateWalletResponse {
     pub created_at: String,
 }
 
+impl Display for CreateWalletResponse {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "Wallet Created: ID={}, Name={}, CreatedAt={}",
+            self.wallet_id, self.wallet_name, self.created_at
+        )
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct GetAccountRequest {
     pub wallet_id: i64,
@@ -37,65 +48,35 @@ pub struct AccountResponse {
     pub created_at: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, JsonSchema)]
-pub struct CreateApiKeyRequest {
-    #[schemars(description = "The wallet ID associated with this API key")]
-    pub wallet_id: i64,
-    #[schemars(description = "The name of the client using this API key")]
-    pub client_name: String,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct CreateApiKeyResponse {
-    pub client_name: String,
-    pub api_key: String,
-    pub created_at: String,
-}
-
-impl Display for CreateApiKeyResponse {
+impl Display for AccountResponse {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "API Key Created: Client={}, CreatedAt={}, Key={}",
-            self.client_name, self.created_at, self.api_key
-        )
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize, JsonSchema)]
-pub struct RevokeApiKeyRequest {
-    #[schemars(description = "The API key to revoke")]
-    pub api_key: String,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct RevokeApiKeyResponse {
-    pub message: String,
-}
-
-impl Display for CreateWalletResponse {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "Wallet Created: ID={}, Name={}, CreatedAt={}",
-            self.wallet_id, self.wallet_name, self.created_at
+            "Account: ID={}, WalletID={}, Index={}, ChainType={}, PublicKey={}, CreatedAt={}",
+            self.account_id,
+            self.wallet_id,
+            self.account_index,
+            self.chain_type,
+            self.public_key,
+            self.created_at
         )
     }
 }
 
 pub struct Services {
     db: Arc<Database>,
-    cipher_key: String,
+    secret_key: String,
 }
 
 impl Services {
-    pub fn new(db: Arc<Database>, cipher_key: String) -> Self {
-        Self { db, cipher_key }
+    pub fn new(db: Arc<Database>, secret_key: String) -> Self {
+        Self { db, secret_key }
     }
 
     /// Create a new wallet with encrypted recovery passphrase
     pub async fn create_wallet(
         &self,
+        api_key: &ApiKey,
         req: CreateWalletRequest,
     ) -> Result<CreateWalletResponse, AppError> {
         // Validate input
@@ -114,7 +95,7 @@ impl Services {
         // Check if wallet already exists
         if self
             .db
-            .get_wallet(&req.wallet_name)
+            .get_wallet(api_key.id, &req.wallet_name)
             .map_err(|e| AppError::DatabaseError(e.to_string()))?
             .is_some()
         {
@@ -127,7 +108,7 @@ impl Services {
         })?;
 
         // Encrypt the passphrase
-        let encrypted_passphrase = crypto::encrypt_secret(&recovery_passphrase, &self.cipher_key)
+        let encrypted_passphrase = crypto::encrypt_secret(&recovery_passphrase, &self.secret_key)
             .map_err(|e| {
             AppError::InternalError(format!("Failed to encrypt passphrase: {}", e))
         })?;
@@ -135,7 +116,7 @@ impl Services {
         // Create wallet in database
         let wallet = self
             .db
-            .create_wallet(&req.wallet_name, &encrypted_passphrase)
+            .create_wallet(api_key.id, &req.wallet_name, &encrypted_passphrase)
             .map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
         Ok(CreateWalletResponse {
@@ -148,12 +129,13 @@ impl Services {
     /// Create or retrieve an account for a wallet with derived keys
     pub async fn create_or_get_account(
         &self,
+        api_key: &ApiKey,
         req: GetAccountRequest,
     ) -> Result<AccountResponse, AppError> {
         // Check if wallet exists
         let wallet = self
             .db
-            .get_wallet_by_id(req.wallet_id)
+            .get_wallet_by_id(api_key.id, req.wallet_id)
             .map_err(|e| AppError::DatabaseError(e.to_string()))?
             .ok_or_else(|| AppError::WalletNotFound(format!("Wallet ID: {}", req.wallet_id)))?;
 
@@ -174,7 +156,7 @@ impl Services {
 
         // Decrypt the wallet's passphrase
         let decrypted_passphrase =
-            crypto::decrypt_secret(&wallet.encrypted_passphrase, &self.cipher_key).map_err(
+            crypto::decrypt_secret(&wallet.encrypted_passphrase, &self.secret_key).map_err(
                 |e| AppError::InternalError(format!("Failed to decrypt passphrase: {}", e)),
             )?;
 
@@ -187,7 +169,7 @@ impl Services {
         .map_err(|e| AppError::InternalError(format!("Failed to derive account keys: {}", e)))?;
 
         // Encrypt the derived private key
-        let encrypted_private_key = crypto::encrypt_secret(&private_key_hex, &self.cipher_key)
+        let encrypted_private_key = crypto::encrypt_secret(&private_key_hex, &self.secret_key)
             .map_err(|e| {
                 AppError::InternalError(format!("Failed to encrypt private key: {}", e))
             })?;
@@ -213,71 +195,12 @@ impl Services {
             created_at: account.created_at,
         })
     }
-
-    /// Create a new API key for a wallet
-    pub fn create_api_key(
-        &self,
-        wallet_id: i64,
-        client_name: &str,
-    ) -> anyhow::Result<crate::models::ApiKey> {
-        let key = crate::auth::generate_api_key();
-        let key_hash = crate::auth::hash_api_key(&key);
-
-        self.db.create_api_key(wallet_id, client_name, &key_hash)?;
-
-        let keys = self.db.list_api_keys(wallet_id)?;
-        let created_key = keys
-            .iter()
-            .find(|(hash, _, _, _)| hash == &key_hash)
-            .ok_or_else(|| anyhow::anyhow!("Failed to retrieve created API key"))?;
-
-        Ok(crate::models::ApiKey {
-            id: 0,
-            wallet_id,
-            key: key.clone(),
-            key_hash: created_key.0.clone(),
-            client_name: created_key.1.clone(),
-            created_at: created_key.2.clone(),
-            is_revoked: created_key.3,
-        })
-    }
-
-    /// Validate an API key and return wallet_id and client_name if valid
-    pub fn validate_api_key(&self, raw_key: &str) -> anyhow::Result<(i64, String)> {
-        let key_hash = crate::auth::hash_api_key(raw_key);
-        let result = self.db.validate_api_key(&key_hash)?;
-        result.ok_or_else(|| anyhow::anyhow!("Invalid or revoked API key"))
-    }
-
-    /// Revoke an API key
-    pub fn revoke_api_key(&self, raw_key: &str) -> anyhow::Result<()> {
-        let key_hash = crate::auth::hash_api_key(raw_key);
-        self.db.revoke_api_key(&key_hash)?;
-        Ok(())
-    }
-
-    /// List all API keys for a wallet
-    pub fn list_api_keys(
-        &self,
-        wallet_id: i64,
-    ) -> anyhow::Result<Vec<crate::models::ApiKeyResponse>> {
-        let keys = self.db.list_api_keys(wallet_id)?;
-        Ok(keys
-            .into_iter()
-            .map(
-                |(_, client_name, created_at, is_revoked)| crate::models::ApiKeyResponse {
-                    client_name,
-                    created_at,
-                    is_revoked,
-                },
-            )
-            .collect())
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::key_store::KeyStore;
     use crate::models::ChainType::{Bitcoin, Ethereum};
     use tempfile::TempDir;
 
@@ -295,12 +218,21 @@ mod tests {
             Database::new(&db_path, "test_cipher_key").expect("Failed to create database"),
         );
 
-        let handler = Services::new(db, "test_cipher_key".to_string());
+        let key_store = Arc::new(KeyStore::new(db.clone()));
+        let api_key = key_store
+            .create("TestClient")
+            .await
+            .expect("Failed to create API key");
+        let api_key = key_store
+            .validate(&api_key)
+            .await
+            .expect("Failed to get API key");
+
+        let services = Services::new(db, "test_cipher_key".to_string());
         let req = CreateWalletRequest {
             wallet_name: "MyWallet".to_string(),
         };
-
-        let response = handler.create_wallet(req).await;
+        let response = services.create_wallet(&api_key, req).await;
         assert!(response.is_ok());
 
         let resp = response.unwrap();
@@ -321,12 +253,21 @@ mod tests {
             Database::new(&db_path, "test_cipher_key").expect("Failed to create database"),
         );
 
-        let handler = Services::new(db, "test_cipher_key".to_string());
+        let key_store = Arc::new(KeyStore::new(db.clone()));
+        let api_key = key_store
+            .create("TestClient")
+            .await
+            .expect("Failed to create API key");
+        let api_key = key_store
+            .validate(&api_key)
+            .await
+            .expect("Failed to get API key");
+
+        let services = Services::new(db, "test_cipher_key".to_string());
         let req = CreateWalletRequest {
             wallet_name: "".to_string(),
         };
-
-        let response = handler.create_wallet(req).await;
+        let response = services.create_wallet(&api_key, req).await;
         assert!(response.is_err());
     }
 
@@ -344,7 +285,17 @@ mod tests {
             Database::new(&db_path, "test_cipher_key").expect("Failed to create database"),
         );
 
-        let handler = Services::new(db, "test_cipher_key".to_string());
+        let key_store = Arc::new(KeyStore::new(db.clone()));
+        let api_key = key_store
+            .create("TestClient")
+            .await
+            .expect("Failed to create API key");
+        let api_key = key_store
+            .validate(&api_key)
+            .await
+            .expect("Failed to get API key");
+
+        let services = Services::new(db, "test_cipher_key".to_string());
 
         let req1 = CreateWalletRequest {
             wallet_name: "MyWallet".to_string(),
@@ -355,11 +306,11 @@ mod tests {
         };
 
         // First creation should succeed
-        let response1 = handler.create_wallet(req1).await;
+        let response1 = services.create_wallet(&api_key, req1).await;
         assert!(response1.is_ok());
 
         // Second creation with same name should fail
-        let response2 = handler.create_wallet(req2).await;
+        let response2 = services.create_wallet(&api_key, req2).await;
         assert!(response2.is_err());
     }
 
@@ -377,13 +328,23 @@ mod tests {
             Database::new(&db_path, "test_cipher_key").expect("Failed to create database"),
         );
 
-        let handler = Services::new(db.clone(), "test_cipher_key".to_string());
+        let key_store = Arc::new(KeyStore::new(db.clone()));
+        let api_key = key_store
+            .create("TestClient")
+            .await
+            .expect("Failed to create API key");
+        let api_key = key_store
+            .validate(&api_key)
+            .await
+            .expect("Failed to get API key");
+
+        let services = Services::new(db.clone(), "test_cipher_key".to_string());
 
         // Create a wallet first
         let wallet_req = CreateWalletRequest {
             wallet_name: "TestWallet".to_string(),
         };
-        let wallet_resp = handler.create_wallet(wallet_req).await.unwrap();
+        let wallet_resp = services.create_wallet(&api_key, wallet_req).await.unwrap();
 
         // Now create an account
         let account_req = GetAccountRequest {
@@ -392,7 +353,7 @@ mod tests {
             chain_type: Bitcoin,
         };
 
-        let account_resp = handler.create_or_get_account(account_req).await;
+        let account_resp = services.create_or_get_account(&api_key, account_req).await;
         assert!(account_resp.is_ok());
 
         let acc = account_resp.unwrap();
@@ -416,13 +377,23 @@ mod tests {
             Database::new(&db_path, "test_cipher_key").expect("Failed to create database"),
         );
 
-        let handler = Services::new(db.clone(), "test_cipher_key".to_string());
+        let key_store = Arc::new(KeyStore::new(db.clone()));
+        let api_key = key_store
+            .create("TestClient")
+            .await
+            .expect("Failed to create API key");
+        let api_key = key_store
+            .validate(&api_key)
+            .await
+            .expect("Failed to get API key");
+
+        let services = Services::new(db.clone(), "test_cipher_key".to_string());
 
         // Create a wallet
         let wallet_req = CreateWalletRequest {
             wallet_name: "TestWallet".to_string(),
         };
-        let wallet_resp = handler.create_wallet(wallet_req).await.unwrap();
+        let wallet_resp = services.create_wallet(&api_key, wallet_req).await.unwrap();
 
         // Create account first time
         let account_req1 = GetAccountRequest {
@@ -430,7 +401,10 @@ mod tests {
             account_index: 0,
             chain_type: Bitcoin,
         };
-        let acc1 = handler.create_or_get_account(account_req1).await.unwrap();
+        let acc1 = services
+            .create_or_get_account(&api_key, account_req1)
+            .await
+            .unwrap();
 
         // Try to create same account again
         let account_req2 = GetAccountRequest {
@@ -438,7 +412,10 @@ mod tests {
             account_index: 0,
             chain_type: Bitcoin,
         };
-        let acc2 = handler.create_or_get_account(account_req2).await.unwrap();
+        let acc2 = services
+            .create_or_get_account(&api_key, account_req2)
+            .await
+            .unwrap();
 
         // Both should have the same public key (they're the same account)
         assert_eq!(acc1.public_key, acc2.public_key);
@@ -459,7 +436,17 @@ mod tests {
             Database::new(&db_path, "test_cipher_key").expect("Failed to create database"),
         );
 
-        let handler = Services::new(db, "test_cipher_key".to_string());
+        let key_store = Arc::new(KeyStore::new(db.clone()));
+        let api_key = key_store
+            .create("TestClient")
+            .await
+            .expect("Failed to create API key");
+        let api_key = key_store
+            .validate(&api_key)
+            .await
+            .expect("Failed to get API key");
+
+        let services = Services::new(db, "test_cipher_key".to_string());
 
         // Try to create account for non-existent wallet
         let account_req = GetAccountRequest {
@@ -468,7 +455,7 @@ mod tests {
             chain_type: Bitcoin,
         };
 
-        let result = handler.create_or_get_account(account_req).await;
+        let result = services.create_or_get_account(&api_key, account_req).await;
         assert!(result.is_err());
     }
 
@@ -486,13 +473,23 @@ mod tests {
             Database::new(&db_path, "test_cipher_key").expect("Failed to create database"),
         );
 
-        let handler = Services::new(db.clone(), "test_cipher_key".to_string());
+        let key_store = Arc::new(KeyStore::new(db.clone()));
+        let api_key = key_store
+            .create("TestClient")
+            .await
+            .expect("Failed to create API key");
+        let api_key = key_store
+            .validate(&api_key)
+            .await
+            .expect("Failed to get API key");
+
+        let services = Services::new(db.clone(), "test_cipher_key".to_string());
 
         // Create a wallet
         let wallet_req = CreateWalletRequest {
             wallet_name: "EthWallet".to_string(),
         };
-        let wallet_resp = handler.create_wallet(wallet_req).await.unwrap();
+        let wallet_resp = services.create_wallet(&api_key, wallet_req).await.unwrap();
 
         // Create Ethereum account
         let account_req = GetAccountRequest {
@@ -501,7 +498,10 @@ mod tests {
             chain_type: Ethereum,
         };
 
-        let acc = handler.create_or_get_account(account_req).await.unwrap();
+        let acc = services
+            .create_or_get_account(&api_key, account_req)
+            .await
+            .unwrap();
         assert_eq!(acc.chain_type, Ethereum);
         assert!(!acc.public_key.is_empty());
     }
