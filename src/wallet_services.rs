@@ -39,6 +39,32 @@ pub struct GetAccountRequest {
     pub chain_type: ChainType,
 }
 
+#[derive(Debug, Serialize, Deserialize, JsonSchema, Clone)]
+pub struct GetBitcoinAddressRequest {
+    #[schemars(description = "The wallet ID to derive the Bitcoin address for.")]
+    pub wallet_id: i64,
+    #[schemars(description = "The account index for derivation (default: 0).")]
+    pub account_index: Option<u32>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BitcoinAddressResponse {
+    pub wallet_id: i64,
+    pub account_index: u32,
+    pub bitcoin_address: String,
+    pub created_at: String,
+}
+
+impl Display for BitcoinAddressResponse {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "BitcoinAddress: WalletID={}, Index={}, Address={}, CreatedAt={}",
+            self.wallet_id, self.account_index, self.bitcoin_address, self.created_at
+        )
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AccountResponse {
     pub account_id: i64,
@@ -196,6 +222,86 @@ impl WalletServices {
             account_index: req.account_index,
             public_key: account.public_key,
             chain_type: account.chain_type,
+            created_at: account.created_at,
+        })
+    }
+
+    /// Get or derive Bitcoin address for a wallet
+    pub async fn get_bitcoin_address(
+        &self,
+        api_key: &ApiKey,
+        req: GetBitcoinAddressRequest,
+    ) -> Result<BitcoinAddressResponse, AppError> {
+        let account_index = req.account_index.unwrap_or(0);
+
+        // Check if wallet exists
+        let wallet = self
+            .store
+            .get_wallet_by_id(api_key.id, req.wallet_id)
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?
+            .ok_or_else(|| AppError::WalletNotFound(format!("Wallet ID: {}", req.wallet_id)))?;
+
+        // Check if Bitcoin account already exists
+        if let Ok(Some(account)) =
+            self.store
+                .get_account(req.wallet_id, account_index as i32, &ChainType::Bitcoin)
+        {
+            // Derive address from existing public key
+            let bitcoin_address = wallet_manager::derive_bitcoin_address(&account.public_key)
+                .map_err(|e| {
+                    AppError::InternalError(format!("Failed to derive Bitcoin address: {}", e))
+                })?;
+
+            return Ok(BitcoinAddressResponse {
+                wallet_id: req.wallet_id,
+                account_index,
+                bitcoin_address,
+                created_at: account.created_at,
+            });
+        }
+
+        // Decrypt the wallet's passphrase
+        let decrypted_passphrase =
+            crypto::decrypt_secret(&wallet.encrypted_passphrase, &self.secret_key).map_err(
+                |e| AppError::InternalError(format!("Failed to decrypt passphrase: {}", e)),
+            )?;
+
+        // Derive account keys using BIP32/BIP44 for Bitcoin
+        let (private_key_hex, public_key_hex, _) = wallet_manager::derive_account_keys(
+            &decrypted_passphrase,
+            account_index,
+            &ChainType::Bitcoin,
+        )
+        .map_err(|e| AppError::InternalError(format!("Failed to derive account keys: {}", e)))?;
+
+        // Encrypt the derived private key
+        let encrypted_private_key = crypto::encrypt_secret(&private_key_hex, &self.secret_key)
+            .map_err(|e| {
+                AppError::InternalError(format!("Failed to encrypt private key: {}", e))
+            })?;
+
+        // Store account in database
+        let account = self
+            .store
+            .create_account(
+                req.wallet_id,
+                account_index as i32,
+                &encrypted_private_key,
+                &public_key_hex,
+                &ChainType::Bitcoin,
+            )
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+        // Derive Bitcoin address from public key
+        let bitcoin_address =
+            wallet_manager::derive_bitcoin_address(&account.public_key).map_err(|e| {
+                AppError::InternalError(format!("Failed to derive Bitcoin address: {}", e))
+            })?;
+
+        Ok(BitcoinAddressResponse {
+            wallet_id: req.wallet_id,
+            account_index,
+            bitcoin_address,
             created_at: account.created_at,
         })
     }
@@ -508,5 +614,199 @@ mod tests {
             .unwrap();
         assert_eq!(acc.chain_type, Ethereum);
         assert!(!acc.public_key.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_get_bitcoin_address_creates_address() {
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let db_path = temp_dir
+            .path()
+            .join("test.db")
+            .to_str()
+            .unwrap()
+            .to_string();
+
+        let secret_key = "test_cipher_key".to_string();
+
+        let db = Arc::new(Database::new(&db_path, &secret_key).expect("Failed to create database"));
+
+        let key_store = KeyServices::new(db.clone(), secret_key.clone());
+        let api_key = key_store
+            .create("TestClient")
+            .await
+            .expect("Failed to create API key");
+        let api_key = key_store
+            .validate(&api_key)
+            .await
+            .expect("Failed to get API key");
+
+        let services = WalletServices::new(db, secret_key);
+
+        // Create a wallet
+        let wallet_req = CreateWalletRequest {
+            wallet_name: "BitcoinWallet".to_string(),
+        };
+        let wallet_resp = services.create_wallet(&api_key, wallet_req).await.unwrap();
+
+        // Get Bitcoin address
+        let addr_req = GetBitcoinAddressRequest {
+            wallet_id: wallet_resp.wallet_id,
+            account_index: Some(0),
+        };
+
+        let addr_resp = services
+            .get_bitcoin_address(&api_key, addr_req)
+            .await
+            .expect("Should get Bitcoin address");
+
+        assert_eq!(addr_resp.wallet_id, wallet_resp.wallet_id);
+        assert_eq!(addr_resp.account_index, 0);
+        assert!(
+            addr_resp.bitcoin_address.starts_with("1"),
+            "Bitcoin address should start with 1"
+        );
+        assert!(!addr_resp.bitcoin_address.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_get_bitcoin_address_returns_existing() {
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let db_path = temp_dir
+            .path()
+            .join("test.db")
+            .to_str()
+            .unwrap()
+            .to_string();
+
+        let secret_key = "test_cipher_key".to_string();
+
+        let db = Arc::new(Database::new(&db_path, &secret_key).expect("Failed to create database"));
+
+        let key_store = KeyServices::new(db.clone(), secret_key.clone());
+        let api_key = key_store
+            .create("TestClient")
+            .await
+            .expect("Failed to create API key");
+        let api_key = key_store
+            .validate(&api_key)
+            .await
+            .expect("Failed to get API key");
+
+        let services = WalletServices::new(db, secret_key);
+
+        // Create a wallet
+        let wallet_req = CreateWalletRequest {
+            wallet_name: "BitcoinWallet".to_string(),
+        };
+        let wallet_resp = services.create_wallet(&api_key, wallet_req).await.unwrap();
+
+        // Get Bitcoin address first time
+        let addr_req1 = GetBitcoinAddressRequest {
+            wallet_id: wallet_resp.wallet_id,
+            account_index: Some(0),
+        };
+        let addr1 = services
+            .get_bitcoin_address(&api_key, addr_req1)
+            .await
+            .unwrap();
+
+        // Get Bitcoin address again
+        let addr_req2 = GetBitcoinAddressRequest {
+            wallet_id: wallet_resp.wallet_id,
+            account_index: Some(0),
+        };
+        let addr2 = services
+            .get_bitcoin_address(&api_key, addr_req2)
+            .await
+            .unwrap();
+
+        // Both should return the same address
+        assert_eq!(addr1.bitcoin_address, addr2.bitcoin_address);
+    }
+
+    #[tokio::test]
+    async fn test_get_bitcoin_address_fails_for_nonexistent_wallet() {
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let db_path = temp_dir
+            .path()
+            .join("test.db")
+            .to_str()
+            .unwrap()
+            .to_string();
+
+        let secret_key = "test_cipher_key".to_string();
+
+        let db = Arc::new(Database::new(&db_path, &secret_key).expect("Failed to create database"));
+
+        let key_store = KeyServices::new(db.clone(), secret_key.clone());
+        let api_key = key_store
+            .create("TestClient")
+            .await
+            .expect("Failed to create API key");
+        let api_key = key_store
+            .validate(&api_key)
+            .await
+            .expect("Failed to get API key");
+
+        let services = WalletServices::new(db, secret_key);
+
+        // Try to get address for non-existent wallet
+        let addr_req = GetBitcoinAddressRequest {
+            wallet_id: 999,
+            account_index: Some(0),
+        };
+
+        let result = services.get_bitcoin_address(&api_key, addr_req).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_get_bitcoin_address_with_default_account_index() {
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let db_path = temp_dir
+            .path()
+            .join("test.db")
+            .to_str()
+            .unwrap()
+            .to_string();
+
+        let secret_key = "test_cipher_key".to_string();
+
+        let db = Arc::new(Database::new(&db_path, &secret_key).expect("Failed to create database"));
+
+        let key_store = KeyServices::new(db.clone(), secret_key.clone());
+        let api_key = key_store
+            .create("TestClient")
+            .await
+            .expect("Failed to create API key");
+        let api_key = key_store
+            .validate(&api_key)
+            .await
+            .expect("Failed to get API key");
+
+        let services = WalletServices::new(db, secret_key);
+
+        // Create a wallet
+        let wallet_req = CreateWalletRequest {
+            wallet_name: "BitcoinWallet".to_string(),
+        };
+        let wallet_resp = services.create_wallet(&api_key, wallet_req).await.unwrap();
+
+        // Get Bitcoin address without specifying account index
+        let addr_req = GetBitcoinAddressRequest {
+            wallet_id: wallet_resp.wallet_id,
+            account_index: None,
+        };
+
+        let addr_resp = services
+            .get_bitcoin_address(&api_key, addr_req)
+            .await
+            .expect("Should get Bitcoin address with default index");
+
+        assert_eq!(
+            addr_resp.account_index, 0,
+            "Should default to account index 0"
+        );
+        assert!(addr_resp.bitcoin_address.starts_with("1"));
     }
 }

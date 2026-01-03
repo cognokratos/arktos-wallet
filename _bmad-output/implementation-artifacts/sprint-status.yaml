@@ -7,7 +7,7 @@ status: "in-progress"
 stories:
   - id: "Story 2.1"
     description: "Implement `get_bitcoin_address` MCP Tool"
-    status: "ready-for-dev"
+    status: "review"
   - id: "Story 2.2"
     description: "Implement `get_ethereum_address` MCP Tool"
     status: "backlog"
