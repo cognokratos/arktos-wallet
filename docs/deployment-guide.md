@@ -10,7 +10,7 @@ The project utilizes a multi-stage Docker build process to create efficient and 
 
 1.  **Dependency Installation & Caching (Builder Stage)**: Leverages `lukemathwalker/cargo-chef` to cache Rust dependencies. This significantly speeds up subsequent builds by only rebuilding changed dependencies.
 2.  **Isolated Build (Builder Stage)**: The application is built within a dedicated builder stage.
-3.  **Lean Runtime (Final Stage)**: The final image uses `gcr.io/distroless/static-debian12:nonroot` as a base. This provides a minimal, secure runtime environment with only the necessary components, reducing the attack surface and image size.
+3.  **Lean Runtime (Final Stage)**: The final image uses `gcr.io/distroless/static-debian13:nonroot` as a base. This provides a minimal, secure runtime environment with only the necessary components, reducing the attack surface and image size.
 
 ### Example Dockerfile (Conceptual)
 

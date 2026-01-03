@@ -19,4 +19,4 @@ stories:
     status: "done"
   - id: "Story 1.5"
     description: "Document Project as an Open-Source, Customizable Blueprint"
-    status: "ready-for-dev"
+    status: "done"
