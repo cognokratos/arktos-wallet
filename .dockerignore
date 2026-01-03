@@ -1,0 +1,48 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Build artifacts
+target/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# IDE
+.vscode
+.idea
+*.iml
+.sublime-*
+
+# Documentation and notes
+docs/
+README.md
+CHANGELOG.md
+*.md
+
+# Test artifacts
+.cargo/
+Cargo.lock
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+Jenkinsfile
+
+# Development
+.env
+.env.local
+
+# BMAD and other tooling
+_bmad/
+_bmad-output/
+db/
+data/
+examples/
+
+# Docker
+Dockerfile
+.dockerignore
+docker-compose.yml
