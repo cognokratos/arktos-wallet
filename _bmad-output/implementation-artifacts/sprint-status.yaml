@@ -1,24 +1,16 @@
 # Sprint Status
-sprint_number: 1
-sprint_goal: "Deliver a secure, containerized wallet creation service with API key authentication, establishing the core of the Arktos Wallet."
-start_date: "2025-12-30"
-end_date: "2026-01-13" # Assuming a two-week sprint
-status: "completed"
-development_status:
-  epic-1-retrospective: "done"
+sprint_number: 2
+sprint_goal: "An AI agent can derive and retrieve Bitcoin and Ethereum public addresses for a specific wallet, and developers can implement health checks and documentation."
+start_date: "2026-01-03"
+end_date: "2026-01-17" # Assuming a two-week sprint
+status: "in-progress"
 stories:
-  - id: "Story 1.1"
-    description: "Implement `create_wallet` MCP Tool"
-    status: "done"
-  - id: "Story 1.2"
-    description: "Implement Secure Multi-Account Management"
-    status: "done"
-  - id: "Story 1.3"
-    description: "Implement API Key Authentication for MCP Client Requests"
-    status: "done"
-  - id: "Story 1.4"
-    description: "Implement Initial Dockerization and Rust Project Structure"
-    status: "done"
-  - id: "Story 1.5"
-    description: "Document Project as an Open-Source, Customizable Blueprint"
-    status: "done"
+  - id: "Story 2.1"
+    description: "Implement `get_bitcoin_address` MCP Tool"
+    status: "ready-for-dev"
+  - id: "Story 2.2"
+    description: "Implement `get_ethereum_address` MCP Tool"
+    status: "backlog"
+  - id: "Story 2.3"
+    description: "Implement Operational Endpoints and Documentation for Developer and User Experience"
+    status: "backlog"
