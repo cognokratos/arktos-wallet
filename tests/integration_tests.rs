@@ -1,8 +1,9 @@
-use arktos_wallet::key_store::KeyStore;
-use arktos_wallet::models::ChainType::{Bitcoin, Ethereum};
+use arktos_wallet::key_services::KeyServices;
+use arktos_wallet::wallet::ChainType::{Bitcoin, Ethereum};
+use arktos_wallet::wallet_store::WalletStore;
 use arktos_wallet::{
-    db::Database,
-    services::{CreateWalletRequest, GetAccountRequest, Services},
+    database::Database,
+    wallet_services::{CreateWalletRequest, GetAccountRequest, WalletServices},
 };
 use std::sync::Arc;
 use tempfile::TempDir;
@@ -19,11 +20,11 @@ async fn test_create_wallet_integration() {
 
     let db =
         Arc::new(Database::new(&db_path, "test_cipher_key").expect("Failed to create database"));
-    let key_store = KeyStore::new(db.clone());
-    let services = Services::new(db, "test_cipher_key".to_string());
+    let key_services = KeyServices::new(db.clone(), "secret".to_string());
+    let services = WalletServices::new(db, "test_cipher_key".to_string());
 
-    let api_key = key_store.create("IntegrationTestAPIKey").await.unwrap();
-    let api_key = key_store.validate(&api_key).await.unwrap();
+    let api_key = key_services.create("IntegrationTestAPIKey").await.unwrap();
+    let api_key = key_services.validate(&api_key).await.unwrap();
     let req = CreateWalletRequest {
         wallet_name: "IntegrationTestWallet".to_string(),
     };
@@ -47,15 +48,15 @@ async fn test_wallet_persistence_after_creation() {
 
     let db =
         Arc::new(Database::new(&db_path, "test_cipher_key").expect("Failed to create database"));
-    let key_store = KeyStore::new(db);
-    let api_key = key_store.create("IntegrationTestAPIKey").await.unwrap();
-    let api_key = key_store.validate(&api_key).await.unwrap();
+    let key_services = KeyServices::new(db, "secret".to_string());
+    let api_key = key_services.create("IntegrationTestAPIKey").await.unwrap();
+    let api_key = key_services.validate(&api_key).await.unwrap();
 
     {
         let db = Arc::new(
             Database::new(&db_path, "test_cipher_key").expect("Failed to create database"),
         );
-        let services = Services::new(db, "test_cipher_key".to_string());
+        let services = WalletServices::new(db, "test_cipher_key".to_string());
 
         let req = CreateWalletRequest {
             wallet_name: "PersistenceTest".to_string(),
@@ -71,7 +72,9 @@ async fn test_wallet_persistence_after_creation() {
             Database::new(&db_path, "test_cipher_key").expect("Failed to create database"),
         );
 
-        let wallet = db
+        let wallet_store = WalletStore::new(db.clone());
+
+        let wallet = wallet_store
             .get_wallet(api_key.id, "PersistenceTest")
             .expect("Should retrieve wallet")
             .expect("Wallet should exist");
@@ -92,11 +95,11 @@ async fn test_wallet_and_account_creation_integration() {
 
     let db =
         Arc::new(Database::new(&db_path, "test_cipher_key").expect("Failed to create database"));
-    let key_store = KeyStore::new(db.clone());
-    let services = Services::new(db.clone(), "test_cipher_key".to_string());
+    let key_services = KeyServices::new(db.clone(), "secret".to_string());
+    let services = WalletServices::new(db.clone(), "test_cipher_key".to_string());
 
-    let api_key = key_store.create("IntegrationTestAPIKey").await.unwrap();
-    let api_key = key_store.validate(&api_key).await.unwrap();
+    let api_key = key_services.create("IntegrationTestAPIKey").await.unwrap();
+    let api_key = key_services.validate(&api_key).await.unwrap();
 
     // Step 1: Create wallet
     let wallet_req = CreateWalletRequest {
@@ -163,8 +166,10 @@ async fn test_wallet_and_account_creation_integration() {
         "Different account indices should have different keys"
     );
 
+    let wallet_store = WalletStore::new(db.clone());
+
     // Step 7: Verify accounts are persisted in database
-    let stored_account = db
+    let stored_account = wallet_store
         .get_account(wallet_id, 0, &Bitcoin)
         .expect("Failed to query account")
         .expect("Account should exist in database");

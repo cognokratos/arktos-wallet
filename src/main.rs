@@ -3,9 +3,9 @@ use arktos_wallet::auth::{
     rotate_api_key,
 };
 use arktos_wallet::config::Config;
-use arktos_wallet::key_store::KeyStore;
+use arktos_wallet::key_services::KeyServices;
 use arktos_wallet::mcp::McpServer;
-use arktos_wallet::{db::Database, services::Services};
+use arktos_wallet::{database::Database, wallet_services::WalletServices};
 use axum::middleware::from_fn_with_state;
 use axum::routing::post;
 use axum::{Router, routing::get};
@@ -27,12 +27,13 @@ async fn main() -> anyhow::Result<()> {
 
     // Initialize database with SQLCipher encryption
     let config = Config::from_env();
+    let secret_key = config.secret_key;
 
     let db = Arc::new(Database::new(&config.db_path, &config.db_key)?);
-    let services = Arc::new(Services::new(db.clone(), config.secret_key));
-    let key_store = Arc::new(KeyStore::new(db.clone()));
+    let wallet_services = Arc::new(WalletServices::new(db.clone(), secret_key.clone()));
+    let key_services = Arc::new(KeyServices::new(db.clone(), secret_key));
     let app_state = AppState {
-        key_store,
+        key_services,
         admin_api_key: config.admin_key,
     };
 
@@ -41,7 +42,7 @@ async fn main() -> anyhow::Result<()> {
 
     let mcp_service = StreamableHttpService::new(
         {
-            let services = services.clone();
+            let services = wallet_services.clone();
             move || Ok(McpServer::new(services.clone()))
         },
         LocalSessionManager::default().into(),

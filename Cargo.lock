@@ -126,6 +126,7 @@ dependencies = [
  "chrono",
  "clap",
  "hex",
+ "hmac",
  "http",
  "rand 0.8.5",
  "rmcp",

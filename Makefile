@@ -43,5 +43,8 @@ encrypt:
 decrypt:
 	@echo "$(word 2,$(MAKECMDGOALS))" | cargo run --quiet --bin secret -- decrypt --key-env SECRET_KEY
 
+hash:
+	@echo "$(word 2,$(MAKECMDGOALS))" | cargo run --quiet --bin secret -- hash --key-env SECRET_KEY
+
 %:
 	@:

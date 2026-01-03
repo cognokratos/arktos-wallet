@@ -1,51 +1,84 @@
-use crate::api_key::ApiKey;
-use crate::db::Database;
-use std::sync::Arc;
+use crate::database::Database;
+use anyhow::{Context, Result};
+use rusqlite::{Connection, OptionalExtension, params};
+use std::sync::{Arc, Mutex};
 
 pub struct KeyStore {
-    db: Arc<Database>,
+    conn: Arc<Mutex<Connection>>,
 }
 
 impl KeyStore {
     pub fn new(db: Arc<Database>) -> Self {
-        Self { db }
-    }
-
-    /// Create a new API key entry in the database
-    pub async fn create(&self, name: &str) -> anyhow::Result<String> {
-        let api_key = ApiKey::generate();
-        let hashed_key = ApiKey::hash(&api_key);
-        self.db.create_api_key(name, &hashed_key)?;
-        Ok(api_key)
-    }
-
-    /// Rotate an existing API key by its ID
-    pub async fn rotate(&self, key_id: i64) -> anyhow::Result<String> {
-        let new_api_key = ApiKey::generate();
-        let hashed_key = ApiKey::hash(&new_api_key);
-        self.db.rotate_api_key(key_id, &hashed_key)?;
-        Ok(new_api_key)
-    }
-
-    /// List all API keys (for admin purposes)
-    pub async fn list(&self) -> anyhow::Result<Vec<ApiKey>> {
-        let api_keys = self.db.list_api_keys()?;
-        let api_keys = api_keys.into_iter().map(ApiKey::read).collect();
-        Ok(api_keys)
-    }
-
-    /// Validate an API key and return its details if valid
-    pub async fn validate(&self, api_key: &str) -> anyhow::Result<ApiKey> {
-        let hashed_key = ApiKey::hash(api_key);
-        match self.db.validate_api_key(&hashed_key)? {
-            None => anyhow::bail!("Invalid API key"),
-            Some((id, name)) => Ok(ApiKey::new(id, name)),
+        Self {
+            conn: db.conn.clone(),
         }
     }
 
-    /// Revoke an API key by its hashed value
-    pub async fn revoke(&self, key_id: i64) -> anyhow::Result<()> {
-        self.db.revoke_api_key(key_id)?;
+    /// Create a new API key for a wallet
+    pub fn create_api_key(&self, key_name: &str, key_hash: &str) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO api_keys (key_hash, key_name) VALUES (?1, ?2)",
+            params![key_hash, key_name],
+        )
+        .context("Failed to create API key")?;
+        Ok(())
+    }
+
+    /// Rotate an API key by updating its hash
+    pub fn rotate_api_key(&self, key_id: i64, new_key_hash: &str) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE api_keys SET key_hash = ?1, is_revoked = 0 WHERE id = ?2",
+            params![new_key_hash, key_id],
+        )
+        .context("Failed to rotate API key")?;
+        Ok(())
+    }
+
+    /// List all API keys
+    pub fn list_api_keys(&self) -> Result<Vec<(i64, String, bool)>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn
+            .prepare("SELECT id, key_name, is_revoked FROM api_keys")
+            .context("Failed to prepare LIST_API_KEYS statement")?;
+        let api_keys = stmt
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+            .context("Failed to query API keys")?
+            .collect::<Result<Vec<(i64, String, bool)>, _>>()
+            .context("Failed to collect API keys")?;
+        Ok(api_keys)
+    }
+
+    /// Validate an API key and return wallet_id and client_name if valid
+    pub fn validate_api_key(&self, key_hash: &str) -> Result<Option<(i64, String)>> {
+        let conn = self.conn.lock().unwrap();
+
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, key_name FROM api_keys
+                 WHERE key_hash = ?1 AND is_revoked = 0",
+            )
+            .context("Failed to prepare VALIDATE_API_KEY statement")?;
+
+        let result = stmt
+            .query_row(params![key_hash], |row| Ok((row.get(0)?, row.get(1)?)))
+            .optional()
+            .context("Failed to query API key")?;
+
+        Ok(result)
+    }
+
+    /// Revoke an API key
+    pub fn revoke_api_key(&self, key_id: i64) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+
+        conn.execute(
+            "UPDATE api_keys SET is_revoked = 1 WHERE id = ?1",
+            params![key_id],
+        )
+        .context("Failed to revoke API key")?;
+
         Ok(())
     }
 }

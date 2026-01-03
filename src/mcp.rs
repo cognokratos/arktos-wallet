@@ -1,5 +1,5 @@
 use crate::api_key::ApiKey;
-use crate::services::{CreateWalletRequest, Services};
+use crate::wallet_services::{CreateWalletRequest, WalletServices};
 use http::request::Parts;
 use rmcp::handler::server::tool::Extension;
 use rmcp::handler::server::tool::ToolRouter;
@@ -12,12 +12,12 @@ use std::sync::Arc;
 #[derive(Clone)]
 pub struct McpServer {
     tool_router: ToolRouter<McpServer>,
-    services: Arc<Services>,
+    services: Arc<WalletServices>,
 }
 
 #[tool_router]
 impl McpServer {
-    pub fn new(services: Arc<Services>) -> Self {
+    pub fn new(services: Arc<WalletServices>) -> Self {
         Self {
             tool_router: Self::tool_router(),
             services,

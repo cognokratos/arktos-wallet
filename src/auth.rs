@@ -1,5 +1,5 @@
 use crate::api_key::ApiKey;
-use crate::key_store::KeyStore;
+use crate::key_services::KeyServices;
 use axum::Json;
 use axum::body::Body;
 use axum::extract::{Path, State};
@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct AppState {
-    pub key_store: Arc<KeyStore>,
+    pub key_services: Arc<KeyServices>,
     pub admin_api_key: String,
 }
 
@@ -20,9 +20,7 @@ pub async fn admin_auth(
     req: Request<Body>,
     next: Next,
 ) -> impl IntoResponse {
-    let api_key = req.headers().get("x-api-key").and_then(|v| v.to_str().ok());
-
-    if let Some(api_key) = api_key {
+    if let Some(api_key) = ApiKey::extract(req.headers()) {
         if api_key == state.admin_api_key {
             // Proceed to the next middleware/handler
             next.run(req).await
@@ -47,10 +45,8 @@ pub async fn api_key_auth(
     mut req: Request<Body>,
     next: Next,
 ) -> impl IntoResponse {
-    let api_key = req.headers().get("x-api-key").and_then(|v| v.to_str().ok());
-
-    if let Some(api_key) = api_key {
-        if let Ok(api_key) = state.key_store.validate(api_key).await {
+    if let Some(api_key) = ApiKey::extract(req.headers()) {
+        if let Ok(api_key) = state.key_services.validate(&api_key).await {
             // Proceed to the next middleware/handler
             req.extensions_mut().insert(api_key);
             next.run(req).await
@@ -80,7 +76,7 @@ pub async fn create_api_key(
     State(state): State<AppState>,
     Json(payload): Json<CreateApiKeyRequest>,
 ) -> Json<NewApiKeyResponse> {
-    let api_key = state.key_store.create(&payload.name).await.unwrap();
+    let api_key = state.key_services.create(&payload.name).await.unwrap();
     Json(NewApiKeyResponse { api_key })
 }
 
@@ -88,7 +84,7 @@ pub async fn rotate_api_key(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Json<NewApiKeyResponse> {
-    let new_api_key = state.key_store.rotate(id).await.unwrap();
+    let new_api_key = state.key_services.rotate(id).await.unwrap();
     Json(NewApiKeyResponse {
         api_key: new_api_key,
     })
@@ -100,7 +96,7 @@ pub struct ListApiKeysResponse {
 }
 
 pub async fn list_api_keys(State(state): State<AppState>) -> Json<ListApiKeysResponse> {
-    let api_keys = state.key_store.list().await.unwrap(); // Replace with actual fetching logic
+    let api_keys = state.key_services.list().await.unwrap(); // Replace with actual fetching logic
     Json(ListApiKeysResponse { api_keys })
 }
 
@@ -113,7 +109,7 @@ pub async fn revoke_api_key(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> impl IntoResponse {
-    state.key_store.revoke(id).await.unwrap();
+    state.key_services.revoke(id).await.unwrap();
     (StatusCode::OK, "API key revoked").into_response()
 }
 
@@ -138,7 +134,7 @@ mod tests {
     #[test]
     fn test_hash_api_key() {
         let key = "test_key_12345";
-        let hash = ApiKey::hash(key);
+        let hash = ApiKey::hash(key, "secret");
         assert!(!hash.is_empty());
         assert_ne!(hash, key);
         assert_eq!(hash.len(), 64); // SHA256 produces 64 hex characters
@@ -147,8 +143,8 @@ mod tests {
     #[test]
     fn test_hash_api_key_deterministic() {
         let key = "test_key_12345";
-        let hash1 = ApiKey::hash(key);
-        let hash2 = ApiKey::hash(key);
+        let hash1 = ApiKey::hash(key, "secret");
+        let hash2 = ApiKey::hash(key, "secret");
         assert_eq!(hash1, hash2);
     }
 

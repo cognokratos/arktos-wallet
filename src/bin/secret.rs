@@ -1,4 +1,5 @@
 use anyhow::{Context, Result, anyhow};
+use arktos_wallet::api_key::ApiKey;
 use arktos_wallet::crypto::{decrypt_secret, encrypt_secret};
 use clap::{Parser, Subcommand};
 
@@ -39,6 +40,20 @@ enum Command {
         #[arg(long)]
         ciphertext: Option<String>,
     },
+    /// Hash api key using SHA256 and print hex string
+    Hash {
+        /// Master key string (prefer passing via --key-env)
+        #[arg(long)]
+        key: Option<String>,
+
+        /// Read master key from this environment variable (recommended)
+        #[arg(long)]
+        key_env: Option<String>,
+
+        /// API key to hash
+        #[arg(long)]
+        api_key: Option<String>,
+    },
 }
 
 fn main() -> Result<()> {
@@ -70,6 +85,19 @@ fn main() -> Result<()> {
             };
             let pt = decrypt_secret(&ciphertext, &key)?;
             println!("{pt}");
+        }
+        Command::Hash {
+            key,
+            key_env,
+            api_key,
+        } => {
+            let key = resolve_key(key, key_env)?;
+            let api_key = match api_key {
+                Some(a) => a,
+                None => read_all_stdin_trimmed().context("failed to read api key from stdin")?,
+            };
+            let hash = ApiKey::hash(&api_key, &key);
+            println!("{hash}");
         }
     }
 
