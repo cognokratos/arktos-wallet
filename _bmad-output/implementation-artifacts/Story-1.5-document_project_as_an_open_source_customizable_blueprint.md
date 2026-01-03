@@ -1,6 +1,6 @@
 # Story 1.5: Document Project as an Open-Source, Customizable Blueprint
 
-Status: review
+Status: done
 
 ## Story
 
