@@ -58,6 +58,32 @@ impl Display for BitcoinAddressResponse {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize, JsonSchema, Clone)]
+pub struct GetEthereumAddressRequest {
+    #[schemars(description = "The wallet name to derive the Ethereum address for.")]
+    pub wallet_name: String,
+    #[schemars(description = "The account index for derivation (default: 0).")]
+    pub account_index: Option<u32>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct EthereumAddressResponse {
+    pub wallet_name: String,
+    pub account_index: u32,
+    pub ethereum_address: String,
+    pub created_at: String,
+}
+
+impl Display for EthereumAddressResponse {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "EthereumAddress: Wallet=\"{}\", Index={}, Address=\"{}\", CreatedAt=\"{}\"",
+            self.wallet_name, self.account_index, self.ethereum_address, self.created_at
+        )
+    }
+}
+
 pub struct WalletServices {
     store: WalletStore,
     secret_key: String,
@@ -144,6 +170,29 @@ impl WalletServices {
             account_index: bitcoin_account.account_index,
             bitcoin_address: bitcoin_account.address,
             created_at: bitcoin_account.created_at,
+        })
+    }
+
+    /// Get or derive Ethereum address for a wallet
+    pub async fn get_ethereum_address(
+        &self,
+        api_key: &ApiKey,
+        req: GetEthereumAddressRequest,
+    ) -> Result<EthereumAddressResponse, AppError> {
+        let ethereum_account = self
+            .create_or_get_account(
+                api_key,
+                req.wallet_name.clone(),
+                req.account_index.unwrap_or(0),
+                ChainType::Ethereum,
+            )
+            .await?;
+
+        Ok(EthereumAddressResponse {
+            wallet_name: req.wallet_name,
+            account_index: ethereum_account.account_index,
+            ethereum_address: ethereum_account.address,
+            created_at: ethereum_account.created_at,
         })
     }
 
@@ -680,5 +729,268 @@ mod tests {
             "Should default to account index 0"
         );
         assert!(addr_resp.bitcoin_address.starts_with("bc1"));
+    }
+
+    #[tokio::test]
+    async fn test_get_ethereum_address_creates_address() {
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let db_path = temp_dir
+            .path()
+            .join("test.db")
+            .to_str()
+            .unwrap()
+            .to_string();
+
+        let secret_key = "test_cipher_key".to_string();
+
+        let db = Arc::new(Database::new(&db_path, &secret_key).expect("Failed to create database"));
+
+        let key_store = KeyServices::new(db.clone(), secret_key.clone());
+        let api_key = key_store
+            .create("TestClient")
+            .await
+            .expect("Failed to create API key");
+        let api_key = key_store
+            .validate(&api_key)
+            .await
+            .expect("Failed to get API key");
+
+        let services = WalletServices::new(db, secret_key);
+
+        // Create a wallet
+        let wallet_req = CreateWalletRequest {
+            wallet_name: "EthereumWallet".to_string(),
+        };
+        let wallet_resp = services.create_wallet(&api_key, wallet_req).await.unwrap();
+
+        // Get Ethereum address
+        let addr_req = GetEthereumAddressRequest {
+            wallet_name: wallet_resp.wallet_name.clone(),
+            account_index: Some(0),
+        };
+
+        let addr_resp = services
+            .get_ethereum_address(&api_key, addr_req)
+            .await
+            .expect("Should get Ethereum address");
+
+        assert_eq!(addr_resp.wallet_name, wallet_resp.wallet_name);
+        assert_eq!(addr_resp.account_index, 0);
+        assert!(addr_resp.ethereum_address.starts_with("0x"));
+        assert_eq!(addr_resp.ethereum_address.len(), 42); // 0x + 40 hex chars
+    }
+
+    #[tokio::test]
+    async fn test_get_ethereum_address_returns_existing() {
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let db_path = temp_dir
+            .path()
+            .join("test.db")
+            .to_str()
+            .unwrap()
+            .to_string();
+
+        let secret_key = "test_cipher_key".to_string();
+
+        let db = Arc::new(Database::new(&db_path, &secret_key).expect("Failed to create database"));
+
+        let key_store = KeyServices::new(db.clone(), secret_key.clone());
+        let api_key = key_store
+            .create("TestClient")
+            .await
+            .expect("Failed to create API key");
+        let api_key = key_store
+            .validate(&api_key)
+            .await
+            .expect("Failed to get API key");
+
+        let services = WalletServices::new(db, secret_key);
+
+        // Create a wallet
+        let wallet_req = CreateWalletRequest {
+            wallet_name: "EthereumWallet2".to_string(),
+        };
+        let wallet_resp = services.create_wallet(&api_key, wallet_req).await.unwrap();
+
+        // Get Ethereum address twice
+        let addr_req1 = GetEthereumAddressRequest {
+            wallet_name: wallet_resp.wallet_name.clone(),
+            account_index: Some(0),
+        };
+
+        let addr_resp1 = services
+            .get_ethereum_address(&api_key, addr_req1)
+            .await
+            .expect("Should get Ethereum address");
+
+        let addr_req2 = GetEthereumAddressRequest {
+            wallet_name: wallet_resp.wallet_name.clone(),
+            account_index: Some(0),
+        };
+
+        let addr_resp2 = services
+            .get_ethereum_address(&api_key, addr_req2)
+            .await
+            .expect("Should get same Ethereum address");
+
+        // Addresses should be identical (deterministic derivation)
+        assert_eq!(addr_resp1.ethereum_address, addr_resp2.ethereum_address);
+    }
+
+    #[tokio::test]
+    async fn test_get_ethereum_address_fails_for_nonexistent_wallet() {
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let db_path = temp_dir
+            .path()
+            .join("test.db")
+            .to_str()
+            .unwrap()
+            .to_string();
+
+        let secret_key = "test_cipher_key".to_string();
+
+        let db = Arc::new(Database::new(&db_path, &secret_key).expect("Failed to create database"));
+
+        let key_store = KeyServices::new(db.clone(), secret_key.clone());
+        let api_key = key_store
+            .create("TestClient")
+            .await
+            .expect("Failed to create API key");
+        let api_key = key_store
+            .validate(&api_key)
+            .await
+            .expect("Failed to get API key");
+
+        let services = WalletServices::new(db, secret_key);
+
+        // Try to get address for non-existent wallet
+        let addr_req = GetEthereumAddressRequest {
+            wallet_name: "NonexistentWallet".to_string(),
+            account_index: Some(0),
+        };
+
+        let result = services.get_ethereum_address(&api_key, addr_req).await;
+        assert!(result.is_err(), "Should fail for nonexistent wallet");
+    }
+
+    #[tokio::test]
+    async fn test_get_ethereum_address_with_default_account_index() {
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let db_path = temp_dir
+            .path()
+            .join("test.db")
+            .to_str()
+            .unwrap()
+            .to_string();
+
+        let secret_key = "test_cipher_key".to_string();
+
+        let db = Arc::new(Database::new(&db_path, &secret_key).expect("Failed to create database"));
+
+        let key_store = KeyServices::new(db.clone(), secret_key.clone());
+        let api_key = key_store
+            .create("TestClient")
+            .await
+            .expect("Failed to create API key");
+        let api_key = key_store
+            .validate(&api_key)
+            .await
+            .expect("Failed to get API key");
+
+        let services = WalletServices::new(db, secret_key);
+
+        // Create a wallet
+        let wallet_req = CreateWalletRequest {
+            wallet_name: "EthereumWallet3".to_string(),
+        };
+        let wallet_resp = services.create_wallet(&api_key, wallet_req).await.unwrap();
+
+        // Get Ethereum address without specifying account index
+        let addr_req = GetEthereumAddressRequest {
+            wallet_name: wallet_resp.wallet_name.clone(),
+            account_index: None,
+        };
+
+        let addr_resp = services
+            .get_ethereum_address(&api_key, addr_req)
+            .await
+            .expect("Should get Ethereum address with default index");
+
+        assert_eq!(
+            addr_resp.account_index, 0,
+            "Should default to account index 0"
+        );
+        assert!(addr_resp.ethereum_address.starts_with("0x"));
+        assert_eq!(addr_resp.ethereum_address.len(), 42);
+    }
+
+    #[tokio::test]
+    async fn test_get_ethereum_address_performance_nfr2() {
+        use std::time::Instant;
+
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let db_path = temp_dir
+            .path()
+            .join("test.db")
+            .to_str()
+            .unwrap()
+            .to_string();
+
+        let secret_key = "test_cipher_key".to_string();
+
+        let db = Arc::new(Database::new(&db_path, &secret_key).expect("Failed to create database"));
+
+        let key_store = KeyServices::new(db.clone(), secret_key.clone());
+        let api_key = key_store
+            .create("TestClient")
+            .await
+            .expect("Failed to create API key");
+        let api_key = key_store
+            .validate(&api_key)
+            .await
+            .expect("Failed to get API key");
+
+        let services = WalletServices::new(db, secret_key);
+
+        // Create a wallet
+        let wallet_req = CreateWalletRequest {
+            wallet_name: "PerfTestWallet".to_string(),
+        };
+        let wallet_resp = services.create_wallet(&api_key, wallet_req).await.unwrap();
+
+        // Warm-up call
+        let addr_req = GetEthereumAddressRequest {
+            wallet_name: wallet_resp.wallet_name.clone(),
+            account_index: Some(0),
+        };
+        let _ = services
+            .get_ethereum_address(&api_key, addr_req.clone())
+            .await;
+
+        // Performance test: measure 100 consecutive calls
+        let mut times = Vec::new();
+        for _ in 0..100 {
+            let start = Instant::now();
+            let _ = services
+                .get_ethereum_address(&api_key, addr_req.clone())
+                .await;
+            let elapsed = start.elapsed().as_millis();
+            times.push(elapsed as u64);
+        }
+
+        times.sort();
+        let p95_idx = std::cmp::min(95, times.len() - 1);
+        let p95 = times[p95_idx];
+
+        println!("get_ethereum_address Performance (NFR2):");
+        println!("  Min: {}ms", times[0]);
+        println!("  P95: {}ms", p95);
+        println!("  Max: {}ms", times[times.len() - 1]);
+
+        assert!(
+            p95 < 100,
+            "P95 latency {} ms exceeds 100ms NFR2 threshold",
+            p95
+        );
     }
 }

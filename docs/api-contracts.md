@@ -49,14 +49,14 @@ Creates a new wallet with a randomly generated recovery passphrase.
 Retrieves the Bitcoin Bech32 public address for an existing wallet.
 
 *   **Tool Name:** `get_bitcoin_address`
-*   **Description:** Converts the private key associated with the specified wallet ID and address index into a Bitcoin Bech32 public address.
+*   **Description:** Derives and retrieves a Bitcoin Bech32 public address (Taproot) for the specified wallet using BIP39/BIP32 hierarchical deterministic wallet derivation.
 *   **Arguments:**
-    *   `wallet_id` (string, required): The unique identifier of the wallet.
-    *   `address_index` (integer, optional, default=0): The index of the address to retrieve.
+    *   `wallet_name` (string, required): The name of the wallet to derive the Bitcoin address for.
+    *   `account_index` (integer, optional, default=0): The account index for derivation (follows BIP44 standard).
 *   **Returns:**
-    *   A string containing the Bitcoin Bech32 address.
+    *   A string containing the Bitcoin Bech32 (Taproot) address.
         ```text 
-        Bitcoin Address: "bc1q..." 
+        BitcoinAddress: Wallet="MyWallet", Index=0, Address="bc1q...", CreatedAt="2026-01-04T19:22:56.934Z"
         ```
 
 ### 3. Get Ethereum Public Address
@@ -64,14 +64,14 @@ Retrieves the Bitcoin Bech32 public address for an existing wallet.
 Retrieves the Ethereum public address for an existing wallet.
 
 *   **Tool Name:** `get_ethereum_address`
-*   **Description:** Converts the private key associated with the specified wallet ID and address index into an Ethereum public address.
+*   **Description:** Derives and retrieves an Ethereum public address for the specified wallet using BIP39/BIP32 hierarchical deterministic wallet derivation (BIP44 path: m/44'/60'/0'/0/{account_index}).
 *   **Arguments:**
-    *   `wallet_id` (string, required): The unique identifier of the wallet.
-    *   `address_index` (integer, optional, default=0): The index of the address to retrieve.
+    *   `wallet_name` (string, required): The name of the wallet to derive the Ethereum address for.
+    *   `account_index` (integer, optional, default=0): The account index for derivation (follows BIP44 standard).
 *   **Returns:**
-    *   A string containing the Ethereum address.
+    *   A string containing the Ethereum address (checksummed, 0x-prefixed, 42 characters total).
         ```text
-        Ethereum Address: "0x..."
+        EthereumAddress: Wallet="MyWallet", Index=0, Address="0x...", CreatedAt="2026-01-04T19:22:56.934Z"
         ```
 
 ### 4. Ping

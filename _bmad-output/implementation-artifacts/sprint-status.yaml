@@ -10,7 +10,7 @@ stories:
     status: "done"
   - id: "Story 2.2"
     description: "Implement `get_ethereum_address` MCP Tool"
-    status: "ready-for-dev"
+    status: "done"
   - id: "Story 2.3"
     description: "Implement Operational Endpoints and Documentation for Developer and User Experience"
     status: "backlog"
