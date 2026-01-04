@@ -117,17 +117,18 @@ impl WalletStore {
     pub fn create_account(
         &self,
         wallet_id: i64,
-        account_index: i32,
-        encrypted_private_key: &str,
+        account_index: u32,
+        address: &str,
         public_key: &str,
+        encrypted_private_key: &str,
         chain_type: &ChainType,
     ) -> Result<Account> {
         let conn = self.conn.lock().unwrap();
 
         conn.execute(
-            "INSERT INTO accounts (wallet_id, account_index, encrypted_private_key, public_key, chain_type)
-             VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![wallet_id, account_index, encrypted_private_key, public_key, chain_type.to_string()],
+            "INSERT INTO accounts (wallet_id, account_index, address, public_key, encrypted_private_key, chain_type)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![wallet_id, account_index, address, public_key, encrypted_private_key, chain_type.to_string()],
         )
             .context("Failed to insert account")?;
 
@@ -137,8 +138,9 @@ impl WalletStore {
             id,
             wallet_id,
             account_index,
-            encrypted_private_key: encrypted_private_key.to_string(),
+            address: address.to_string(),
             public_key: public_key.to_string(),
+            encrypted_private_key: encrypted_private_key.to_string(),
             chain_type: chain_type.clone(),
             created_at: chrono::Utc::now().to_rfc3339(),
         })
@@ -148,14 +150,14 @@ impl WalletStore {
     pub fn get_account(
         &self,
         wallet_id: i64,
-        account_index: i32,
+        account_index: u32,
         chain_type: &ChainType,
     ) -> Result<Option<Account>> {
         let conn = self.conn.lock().unwrap();
 
         let mut stmt = conn
             .prepare(
-                "SELECT id, wallet_id, account_index, encrypted_private_key, public_key, chain_type, created_at
+                "SELECT id, wallet_id, account_index, address, public_key, encrypted_private_key, chain_type, created_at
                  FROM accounts WHERE wallet_id = ?1 AND account_index = ?2 AND chain_type = ?3",
             )
             .context("Failed to prepare GET_ACCOUNT statement")?;
@@ -164,16 +166,17 @@ impl WalletStore {
             .query_row(
                 params![wallet_id, account_index, chain_type.to_string()],
                 |row| {
-                    let chain_type: String = row.get(5)?;
+                    let chain_type: String = row.get(6)?;
                     let chain_type = ChainType::from_str(&chain_type);
                     Ok(Account {
                         id: row.get(0)?,
                         wallet_id: row.get(1)?,
                         account_index: row.get(2)?,
-                        encrypted_private_key: row.get(3)?,
+                        address: row.get(3)?,
                         public_key: row.get(4)?,
+                        encrypted_private_key: row.get(5)?,
                         chain_type: chain_type.unwrap(),
-                        created_at: row.get(6)?,
+                        created_at: row.get(7)?,
                     })
                 },
             )

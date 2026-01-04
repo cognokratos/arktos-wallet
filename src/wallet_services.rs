@@ -1,5 +1,5 @@
 use crate::api_key::ApiKey;
-use crate::wallet::ChainType;
+use crate::wallet::{Account, ChainType};
 use crate::wallet_store::WalletStore;
 use crate::{crypto, database::Database, error::AppError, wallet_manager};
 use anyhow::Result;
@@ -26,30 +26,23 @@ impl Display for CreateWalletResponse {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "Wallet Created: ID={}, Name={}, CreatedAt={}",
+            "Wallet Created: ID={}, Name=\"{}\", CreatedAt=\"{}\"",
             self.wallet_id, self.wallet_name, self.created_at
         )
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, JsonSchema)]
-pub struct GetAccountRequest {
-    pub wallet_id: i64,
-    pub account_index: u32,
-    pub chain_type: ChainType,
-}
-
 #[derive(Debug, Serialize, Deserialize, JsonSchema, Clone)]
 pub struct GetBitcoinAddressRequest {
-    #[schemars(description = "The wallet ID to derive the Bitcoin address for.")]
-    pub wallet_id: i64,
+    #[schemars(description = "The wallet name to derive the Bitcoin address for.")]
+    pub wallet_name: String,
     #[schemars(description = "The account index for derivation (default: 0).")]
     pub account_index: Option<u32>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BitcoinAddressResponse {
-    pub wallet_id: i64,
+    pub wallet_name: String,
     pub account_index: u32,
     pub bitcoin_address: String,
     pub created_at: String,
@@ -59,33 +52,8 @@ impl Display for BitcoinAddressResponse {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "BitcoinAddress: WalletID={}, Index={}, Address={}, CreatedAt={}",
-            self.wallet_id, self.account_index, self.bitcoin_address, self.created_at
-        )
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct AccountResponse {
-    pub account_id: i64,
-    pub wallet_id: i64,
-    pub account_index: u32,
-    pub public_key: String,
-    pub chain_type: ChainType,
-    pub created_at: String,
-}
-
-impl Display for AccountResponse {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "Account: ID={}, WalletID={}, Index={}, ChainType={}, PublicKey={}, CreatedAt={}",
-            self.account_id,
-            self.wallet_id,
-            self.account_index,
-            self.chain_type,
-            self.public_key,
-            self.created_at
+            "BitcoinAddress: Wallet=\"{}\", Index={}, Address=\"{}\", CreatedAt=\"{}\"",
+            self.wallet_name, self.account_index, self.bitcoin_address, self.created_at
         )
     }
 }
@@ -156,108 +124,50 @@ impl WalletServices {
         })
     }
 
-    /// Create or retrieve an account for a wallet with derived keys
-    pub async fn create_or_get_account(
-        &self,
-        api_key: &ApiKey,
-        req: GetAccountRequest,
-    ) -> Result<AccountResponse, AppError> {
-        // Check if wallet exists
-        let wallet = self
-            .store
-            .get_wallet_by_id(api_key.id, req.wallet_id)
-            .map_err(|e| AppError::DatabaseError(e.to_string()))?
-            .ok_or_else(|| AppError::WalletNotFound(format!("Wallet ID: {}", req.wallet_id)))?;
-
-        // Check if account already exists
-        if let Ok(Some(account)) =
-            self.store
-                .get_account(req.wallet_id, req.account_index as i32, &req.chain_type)
-        {
-            return Ok(AccountResponse {
-                account_id: account.id,
-                wallet_id: account.wallet_id,
-                account_index: req.account_index,
-                public_key: account.public_key,
-                chain_type: account.chain_type,
-                created_at: account.created_at,
-            });
-        }
-
-        // Decrypt the wallet's passphrase
-        let decrypted_passphrase =
-            crypto::decrypt_secret(&wallet.encrypted_passphrase, &self.secret_key).map_err(
-                |e| AppError::InternalError(format!("Failed to decrypt passphrase: {}", e)),
-            )?;
-
-        // Derive account keys using BIP32/BIP44
-        let (private_key_hex, public_key_hex, _) = wallet_manager::derive_account_keys(
-            &decrypted_passphrase,
-            req.account_index,
-            &req.chain_type,
-        )
-        .map_err(|e| AppError::InternalError(format!("Failed to derive account keys: {}", e)))?;
-
-        // Encrypt the derived private key
-        let encrypted_private_key = crypto::encrypt_secret(&private_key_hex, &self.secret_key)
-            .map_err(|e| {
-                AppError::InternalError(format!("Failed to encrypt private key: {}", e))
-            })?;
-
-        // Store account in database
-        let account = self
-            .store
-            .create_account(
-                req.wallet_id,
-                req.account_index as i32,
-                &encrypted_private_key,
-                &public_key_hex,
-                &req.chain_type,
-            )
-            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
-
-        Ok(AccountResponse {
-            account_id: account.id,
-            wallet_id: account.wallet_id,
-            account_index: req.account_index,
-            public_key: account.public_key,
-            chain_type: account.chain_type,
-            created_at: account.created_at,
-        })
-    }
-
     /// Get or derive Bitcoin address for a wallet
     pub async fn get_bitcoin_address(
         &self,
         api_key: &ApiKey,
         req: GetBitcoinAddressRequest,
     ) -> Result<BitcoinAddressResponse, AppError> {
-        let account_index = req.account_index.unwrap_or(0);
+        let bitcoin_account = self
+            .create_or_get_account(
+                api_key,
+                req.wallet_name.clone(),
+                req.account_index.unwrap_or(0),
+                ChainType::Bitcoin,
+            )
+            .await?;
 
+        Ok(BitcoinAddressResponse {
+            wallet_name: req.wallet_name,
+            account_index: bitcoin_account.account_index,
+            bitcoin_address: bitcoin_account.address,
+            created_at: bitcoin_account.created_at,
+        })
+    }
+
+    /// Create or retrieve an account for a wallet with derived keys
+    async fn create_or_get_account(
+        &self,
+        api_key: &ApiKey,
+        wallet_name: String,
+        account_index: u32,
+        chain_type: ChainType,
+    ) -> Result<Account, AppError> {
         // Check if wallet exists
         let wallet = self
             .store
-            .get_wallet_by_id(api_key.id, req.wallet_id)
+            .get_wallet(api_key.id, &wallet_name)
             .map_err(|e| AppError::DatabaseError(e.to_string()))?
-            .ok_or_else(|| AppError::WalletNotFound(format!("Wallet ID: {}", req.wallet_id)))?;
+            .ok_or_else(|| AppError::WalletNotFound(format!("Wallet Name: {}", wallet_name)))?;
 
-        // Check if Bitcoin account already exists
-        if let Ok(Some(account)) =
-            self.store
-                .get_account(req.wallet_id, account_index as i32, &ChainType::Bitcoin)
+        // Check if account already exists
+        if let Ok(Some(account)) = self
+            .store
+            .get_account(wallet.id, account_index, &chain_type)
         {
-            // Derive address from existing public key
-            let bitcoin_address = wallet_manager::derive_bitcoin_address(&account.public_key)
-                .map_err(|e| {
-                    AppError::InternalError(format!("Failed to derive Bitcoin address: {}", e))
-                })?;
-
-            return Ok(BitcoinAddressResponse {
-                wallet_id: req.wallet_id,
-                account_index,
-                bitcoin_address,
-                created_at: account.created_at,
-            });
+            return Ok(account);
         }
 
         // Decrypt the wallet's passphrase
@@ -266,17 +176,15 @@ impl WalletServices {
                 |e| AppError::InternalError(format!("Failed to decrypt passphrase: {}", e)),
             )?;
 
-        // Derive account keys using BIP32/BIP44 for Bitcoin
-        let (private_key_hex, public_key_hex, _) = wallet_manager::derive_account_keys(
-            &decrypted_passphrase,
-            account_index,
-            &ChainType::Bitcoin,
-        )
-        .map_err(|e| AppError::InternalError(format!("Failed to derive account keys: {}", e)))?;
+        let account_data =
+            wallet_manager::derive_account_keys(&decrypted_passphrase, account_index, &chain_type)
+                .map_err(|e| {
+                    AppError::InternalError(format!("Failed to derive account keys: {}", e))
+                })?;
 
         // Encrypt the derived private key
-        let encrypted_private_key = crypto::encrypt_secret(&private_key_hex, &self.secret_key)
-            .map_err(|e| {
+        let encrypted_private_key =
+            crypto::encrypt_secret(&account_data.private_key, &self.secret_key).map_err(|e| {
                 AppError::InternalError(format!("Failed to encrypt private key: {}", e))
             })?;
 
@@ -284,26 +192,16 @@ impl WalletServices {
         let account = self
             .store
             .create_account(
-                req.wallet_id,
-                account_index as i32,
+                wallet.id,
+                account_index,
+                &account_data.address,
+                &account_data.public_key,
                 &encrypted_private_key,
-                &public_key_hex,
-                &ChainType::Bitcoin,
+                &chain_type,
             )
             .map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
-        // Derive Bitcoin address from public key
-        let bitcoin_address =
-            wallet_manager::derive_bitcoin_address(&account.public_key).map_err(|e| {
-                AppError::InternalError(format!("Failed to derive Bitcoin address: {}", e))
-            })?;
-
-        Ok(BitcoinAddressResponse {
-            wallet_id: req.wallet_id,
-            account_index,
-            bitcoin_address,
-            created_at: account.created_at,
-        })
+        Ok(account)
     }
 }
 
@@ -456,14 +354,9 @@ mod tests {
         };
         let wallet_resp = services.create_wallet(&api_key, wallet_req).await.unwrap();
 
-        // Now create an account
-        let account_req = GetAccountRequest {
-            wallet_id: wallet_resp.wallet_id,
-            account_index: 0,
-            chain_type: Bitcoin,
-        };
-
-        let account_resp = services.create_or_get_account(&api_key, account_req).await;
+        let account_resp = services
+            .create_or_get_account(&api_key, "TestWallet".to_string(), 0, Bitcoin)
+            .await;
         assert!(account_resp.is_ok());
 
         let acc = account_resp.unwrap();
@@ -503,33 +396,22 @@ mod tests {
         let wallet_req = CreateWalletRequest {
             wallet_name: "TestWallet".to_string(),
         };
-        let wallet_resp = services.create_wallet(&api_key, wallet_req).await.unwrap();
 
-        // Create account first time
-        let account_req1 = GetAccountRequest {
-            wallet_id: wallet_resp.wallet_id,
-            account_index: 0,
-            chain_type: Bitcoin,
-        };
+        services.create_wallet(&api_key, wallet_req).await.unwrap();
+
         let acc1 = services
-            .create_or_get_account(&api_key, account_req1)
+            .create_or_get_account(&api_key, "TestWallet".to_string(), 0, Bitcoin)
             .await
             .unwrap();
 
-        // Try to create same account again
-        let account_req2 = GetAccountRequest {
-            wallet_id: wallet_resp.wallet_id,
-            account_index: 0,
-            chain_type: Bitcoin,
-        };
         let acc2 = services
-            .create_or_get_account(&api_key, account_req2)
+            .create_or_get_account(&api_key, "TestWallet".to_string(), 0, Bitcoin)
             .await
             .unwrap();
 
         // Both should have the same public key (they're the same account)
         assert_eq!(acc1.public_key, acc2.public_key);
-        assert_eq!(acc1.account_id, acc2.account_id);
+        assert_eq!(acc1.id, acc2.id);
     }
 
     #[tokio::test]
@@ -558,14 +440,9 @@ mod tests {
 
         let services = WalletServices::new(db, secret_key);
 
-        // Try to create account for non-existent wallet
-        let account_req = GetAccountRequest {
-            wallet_id: 999,
-            account_index: 0,
-            chain_type: Bitcoin,
-        };
-
-        let result = services.create_or_get_account(&api_key, account_req).await;
+        let result = services
+            .create_or_get_account(&api_key, "MissingWallet".to_string(), 0, Bitcoin)
+            .await;
         assert!(result.is_err());
     }
 
@@ -599,17 +476,12 @@ mod tests {
         let wallet_req = CreateWalletRequest {
             wallet_name: "EthWallet".to_string(),
         };
-        let wallet_resp = services.create_wallet(&api_key, wallet_req).await.unwrap();
+
+        services.create_wallet(&api_key, wallet_req).await.unwrap();
 
         // Create Ethereum account
-        let account_req = GetAccountRequest {
-            wallet_id: wallet_resp.wallet_id,
-            account_index: 0,
-            chain_type: Ethereum,
-        };
-
         let acc = services
-            .create_or_get_account(&api_key, account_req)
+            .create_or_get_account(&api_key, "EthWallet".to_string(), 0, Ethereum)
             .await
             .unwrap();
         assert_eq!(acc.chain_type, Ethereum);
@@ -650,7 +522,7 @@ mod tests {
 
         // Get Bitcoin address
         let addr_req = GetBitcoinAddressRequest {
-            wallet_id: wallet_resp.wallet_id,
+            wallet_name: "BitcoinWallet".to_string(),
             account_index: Some(0),
         };
 
@@ -659,11 +531,11 @@ mod tests {
             .await
             .expect("Should get Bitcoin address");
 
-        assert_eq!(addr_resp.wallet_id, wallet_resp.wallet_id);
+        assert_eq!(addr_resp.wallet_name, wallet_resp.wallet_name);
         assert_eq!(addr_resp.account_index, 0);
         assert!(
-            addr_resp.bitcoin_address.starts_with("1"),
-            "Bitcoin address should start with 1"
+            addr_resp.bitcoin_address.starts_with("bc1"),
+            "Bitcoin address should start with bc1"
         );
         assert!(!addr_resp.bitcoin_address.is_empty());
     }
@@ -702,7 +574,7 @@ mod tests {
 
         // Get Bitcoin address first time
         let addr_req1 = GetBitcoinAddressRequest {
-            wallet_id: wallet_resp.wallet_id,
+            wallet_name: wallet_resp.wallet_name.clone(),
             account_index: Some(0),
         };
         let addr1 = services
@@ -712,7 +584,7 @@ mod tests {
 
         // Get Bitcoin address again
         let addr_req2 = GetBitcoinAddressRequest {
-            wallet_id: wallet_resp.wallet_id,
+            wallet_name: wallet_resp.wallet_name.clone(),
             account_index: Some(0),
         };
         let addr2 = services
@@ -752,7 +624,7 @@ mod tests {
 
         // Try to get address for non-existent wallet
         let addr_req = GetBitcoinAddressRequest {
-            wallet_id: 999,
+            wallet_name: "MissingWallet".to_string(),
             account_index: Some(0),
         };
 
@@ -794,7 +666,7 @@ mod tests {
 
         // Get Bitcoin address without specifying account index
         let addr_req = GetBitcoinAddressRequest {
-            wallet_id: wallet_resp.wallet_id,
+            wallet_name: wallet_resp.wallet_name.clone(),
             account_index: None,
         };
 
@@ -807,6 +679,6 @@ mod tests {
             addr_resp.account_index, 0,
             "Should default to account index 0"
         );
-        assert!(addr_resp.bitcoin_address.starts_with("1"));
+        assert!(addr_resp.bitcoin_address.starts_with("bc1"));
     }
 }

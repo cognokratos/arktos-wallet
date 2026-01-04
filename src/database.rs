@@ -40,18 +40,20 @@ impl Database {
             CREATE TABLE IF NOT EXISTS wallets (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 key_id INTEGER NOT NULL,
-                name TEXT UNIQUE NOT NULL,
+                name TEXT NOT NULL,
                 encrypted_passphrase TEXT NOT NULL,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (key_id) REFERENCES api_keys(id)
+                FOREIGN KEY (key_id) REFERENCES api_keys(id),
+                UNIQUE(key_id, name)
             );
             
             CREATE TABLE IF NOT EXISTS accounts (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 wallet_id INTEGER NOT NULL,
                 account_index INTEGER NOT NULL,
-                encrypted_private_key TEXT NOT NULL,
+                address TEXT NOT NULL,
                 public_key TEXT NOT NULL,
+                encrypted_private_key TEXT NOT NULL,
                 chain_type TEXT NOT NULL,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (wallet_id) REFERENCES wallets(id),
@@ -200,8 +202,9 @@ mod tests {
             .create_account(
                 wallet.id,
                 0,
-                "encrypted_key_123",
+                "address_xyz",
                 "public_key_abc",
+                "encrypted_key_123",
                 &Bitcoin,
             )
             .expect("Failed to create account");
@@ -240,7 +243,7 @@ mod tests {
             .expect("Failed to create wallet");
 
         wallet_store
-            .create_account(wallet.id, 0, "key1", "pubkey1", &Bitcoin)
+            .create_account(wallet.id, 0, "addr1", "pub_key1", "priv_key1", &Bitcoin)
             .expect("Failed to create account");
 
         let retrieved = wallet_store

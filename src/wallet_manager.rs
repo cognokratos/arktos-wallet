@@ -2,9 +2,11 @@ use crate::wallet::ChainType;
 use anyhow::{Result, anyhow};
 use bip32::{DerivationPath, XPrv};
 use bip39::Mnemonic;
-use bitcoin::Network;
-use bitcoin::PublicKey;
-use bitcoin::address::Address;
+use bitcoin::{
+    Network, PublicKey,
+    address::Address,
+    secp256k1::{Secp256k1, XOnlyPublicKey},
+};
 use rand::RngCore;
 use std::str::FromStr;
 use tiny_keccak::{Hasher, Keccak};
@@ -17,22 +19,33 @@ pub fn generate_recovery_passphrase() -> Result<String> {
     Ok(mnemonic.to_string())
 }
 
-/// Derive account keys using BIP32/BIP44 standard
-/// Takes a mnemonic and account index, returns (private_key_hex, public_key_hex, derivation_path)
+pub struct AccountData {
+    pub derivation_path: String,
+    pub private_key: String,
+    pub public_key: String,
+    pub address: String,
+}
+
+/// Derive an account's private/public keypair and address for a given chain.
+///
+/// Returns AccountData containing:
+/// - `derivation_path` used for the account
+/// - `private_key` is the 66-byte secp256k1 secret key (raw bytes)
+/// - `public_key` is the compressed SEC1-encoded public key (raw bytes, 68 bytes)
+/// - `address` is the derived address for the account
 pub fn derive_account_keys(
     mnemonic: &str,
     account_index: u32,
     chain_type: &ChainType,
-) -> Result<(String, String, String)> {
+) -> Result<AccountData> {
     let mnemonic =
         Mnemonic::parse_normalized(mnemonic).map_err(|e| anyhow!("Invalid mnemonic: {}", e))?;
 
     let seed = mnemonic.to_seed("");
-
     let mut xprv = XPrv::new(seed)?;
 
     let derivation_path = match chain_type {
-        ChainType::Bitcoin => format!("m/44'/0'/0'/0/{}", account_index),
+        ChainType::Bitcoin => format!("m/86'/0'/0'/0/{}", account_index),
         ChainType::Ethereum => format!("m/44'/60'/0'/0/{}", account_index),
     };
 
@@ -45,59 +58,61 @@ pub fn derive_account_keys(
             .map_err(|e| anyhow!("Failed to derive child key: {}", e))?;
     }
 
-    let private_key_bytes = xprv.private_key().to_bytes();
-    let private_key_hex = hex::encode(private_key_bytes);
+    let private_key = xprv.private_key().to_bytes().to_vec();
+    let public_key = xprv.public_key().to_bytes().to_vec();
 
-    let public_key_bytes = xprv.public_key().to_bytes();
-    let public_key_hex = hex::encode(public_key_bytes);
+    let address = match chain_type {
+        ChainType::Bitcoin => derive_bitcoin_address(&public_key)?,
+        ChainType::Ethereum => derive_ethereum_address(&public_key)?,
+    };
 
-    Ok((private_key_hex, public_key_hex, derivation_path))
+    let private_key = format!("0x{}", hex::encode(private_key));
+    let public_key = format!("0x{}", hex::encode(public_key));
+
+    Ok(AccountData {
+        derivation_path,
+        private_key,
+        public_key,
+        address,
+    })
 }
 
-/// Derive a Bitcoin address from a public key (hex string)
-/// Returns a valid Bitcoin address for mainnet
-pub fn derive_bitcoin_address(public_key_hex: &str) -> Result<String> {
-    let public_key_bytes =
-        hex::decode(public_key_hex).map_err(|e| anyhow!("Failed to decode public key: {}", e))?;
-
-    let public_key = PublicKey::from_slice(&public_key_bytes)
+/// Derive a Bitcoin address (Taproot) from a (compressed) secp256k1 public key.
+fn derive_bitcoin_address(public_key: &[u8]) -> Result<String> {
+    let pk = PublicKey::from_slice(public_key)
         .map_err(|e| anyhow!("Invalid public key format: {}", e))?;
 
-    let address = Address::p2pkh(public_key, Network::Bitcoin);
+    let xonly = XOnlyPublicKey::from(pk.inner);
+    let secp = Secp256k1::verification_only();
+    let address = Address::p2tr(&secp, xonly, None, Network::Bitcoin);
+
     Ok(address.to_string())
 }
 
-/// Derive an Ethereum address from a public key (hex string)
-/// Ethereum uses Keccak-256 hash of the uncompressed public key (without 0x04 prefix)
-/// Takes the last 20 bytes and returns with 0x prefix
-pub fn derive_ethereum_address(public_key_hex: &str) -> Result<String> {
-    let public_key_bytes =
-        hex::decode(public_key_hex).map_err(|e| anyhow!("Failed to decode public key: {}", e))?;
-
-    let public_key = PublicKey::from_slice(&public_key_bytes)
+/// Derive an Ethereum address from a (compressed) secp256k1 public key.
+///
+/// Ethereum uses Keccak-256 of the uncompressed public key (without the 0x04 prefix),
+/// then takes the last 20 bytes.
+fn derive_ethereum_address(public_key: &[u8]) -> Result<String> {
+    let public_key = PublicKey::from_slice(public_key)
         .map_err(|e| anyhow!("Invalid public key format: {}", e))?;
 
-    // Get uncompressed public key bytes (includes the 0x04 prefix)
-    let uncompressed_bytes = public_key.inner.serialize_uncompressed().to_vec();
+    // Uncompressed public key bytes include the 0x04 prefix
+    let uncompressed = public_key.inner.serialize_uncompressed();
 
-    // Remove the 0x04 prefix (first byte)
-    let key_material = if uncompressed_bytes.len() == 65 && uncompressed_bytes[0] == 0x04 {
-        &uncompressed_bytes[1..]
+    let key_material = if uncompressed.len() == 65 && uncompressed[0] == 0x04 {
+        &uncompressed[1..]
     } else {
-        &uncompressed_bytes
+        &uncompressed[..]
     };
 
-    // Hash with Keccak-256
     let mut hasher = Keccak::v256();
     hasher.update(key_material);
     let mut hash = [0u8; 32];
     hasher.finalize(&mut hash);
 
-    // Take last 20 bytes
-    let address_bytes = &hash[12..];
-    let address_hex = hex::encode(address_bytes);
-
-    Ok(format!("0x{}", address_hex))
+    let address_bytes = &hash[12..]; // last 20 bytes
+    Ok(format!("0x{}", hex::encode(address_bytes)))
 }
 
 #[cfg(test)]
@@ -145,13 +160,33 @@ mod tests {
     #[test]
     fn test_derive_account_keys_bitcoin() {
         let mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
-        let (private_key, public_key, path) =
+        let account =
             derive_account_keys(mnemonic, 0, &Bitcoin).expect("Should derive Bitcoin keys");
 
-        assert!(!private_key.is_empty(), "Private key should not be empty");
-        assert!(!public_key.is_empty(), "Public key should not be empty");
+        assert!(
+            !account.private_key.is_empty(),
+            "Private key should not be empty"
+        );
+        assert!(
+            !account.public_key.is_empty(),
+            "Public key should not be empty"
+        );
         assert_eq!(
-            path, "m/44'/0'/0'/0/0",
+            account.private_key.len(),
+            66,
+            "Private key should be 66 bytes"
+        );
+        assert_eq!(
+            account.public_key.len(),
+            68,
+            "Public key should be 68 bytes (compressed)"
+        );
+        assert!(
+            account.address.starts_with("bc1"),
+            "Bitcoin address should start with bc1"
+        );
+        assert_eq!(
+            account.derivation_path, "m/86'/0'/0'/0/0",
             "Derivation path should match Bitcoin standard"
         );
     }
@@ -159,13 +194,38 @@ mod tests {
     #[test]
     fn test_derive_account_keys_ethereum() {
         let mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
-        let (private_key, public_key, path) =
+        let account =
             derive_account_keys(mnemonic, 0, &Ethereum).expect("Should derive Ethereum keys");
 
-        assert!(!private_key.is_empty(), "Private key should not be empty");
-        assert!(!public_key.is_empty(), "Public key should not be empty");
+        assert!(
+            !account.private_key.is_empty(),
+            "Private key should not be empty"
+        );
+        assert!(
+            !account.public_key.is_empty(),
+            "Public key should not be empty"
+        );
         assert_eq!(
-            path, "m/44'/60'/0'/0/0",
+            account.private_key.len(),
+            66,
+            "Private key should be 66 bytes"
+        );
+        assert_eq!(
+            account.public_key.len(),
+            68,
+            "Public key should be 68 bytes (compressed)"
+        );
+        assert!(
+            account.address.starts_with("0x"),
+            "Ethereum address should start with 0x"
+        );
+        assert_eq!(
+            account.address.len(),
+            42,
+            "Ethereum address should be 42 characters (0x + 40 hex)"
+        );
+        assert_eq!(
+            account.derivation_path, "m/44'/60'/0'/0/0",
             "Derivation path should match Ethereum standard"
         );
     }
@@ -173,18 +233,22 @@ mod tests {
     #[test]
     fn test_derive_account_keys_different_indices() {
         let mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
-        let (priv1, pub1, _) =
+        let account_1 =
             derive_account_keys(mnemonic, 0, &Bitcoin).expect("Should derive first account");
-        let (priv2, pub2, _) =
+        let account_2 =
             derive_account_keys(mnemonic, 1, &Bitcoin).expect("Should derive second account");
 
         assert_ne!(
-            priv1, priv2,
+            account_1.private_key, account_2.private_key,
             "Different indices should produce different private keys"
         );
         assert_ne!(
-            pub1, pub2,
+            account_1.public_key, account_2.public_key,
             "Different indices should produce different public keys"
+        );
+        assert_ne!(
+            account_1.address, account_2.address,
+            "Different indices should produce different addresses"
         );
     }
 
@@ -197,30 +261,30 @@ mod tests {
     #[test]
     fn test_derive_bitcoin_address_from_valid_public_key() {
         let mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
-        let (_, public_key_hex, _) =
+        let account =
             derive_account_keys(mnemonic, 0, &Bitcoin).expect("Should derive Bitcoin keys");
 
-        let address = derive_bitcoin_address(&public_key_hex).expect("Should derive address");
-
-        // Bitcoin address should start with 1 for P2PKH (mainnet)
+        // Bitcoin address should start with bc1 for Taproot (mainnet)
         assert!(
-            address.starts_with("1"),
-            "Bitcoin address should start with 1"
+            account.address.starts_with("bc1"),
+            "Bitcoin address should start with bc1"
         );
-        assert!(!address.is_empty(), "Bitcoin address should not be empty");
+        assert!(
+            !account.address.is_empty(),
+            "Bitcoin address should not be empty"
+        );
     }
 
     #[test]
     fn test_derive_bitcoin_address_consistent() {
         let mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
-        let (_, public_key_hex, _) =
+        let account_1 =
+            derive_account_keys(mnemonic, 0, &Bitcoin).expect("Should derive Bitcoin keys");
+        let account_2 =
             derive_account_keys(mnemonic, 0, &Bitcoin).expect("Should derive Bitcoin keys");
 
-        let address1 = derive_bitcoin_address(&public_key_hex).expect("Should derive address 1");
-        let address2 = derive_bitcoin_address(&public_key_hex).expect("Should derive address 2");
-
         assert_eq!(
-            address1, address2,
+            account_1.address, account_2.address,
             "Same public key should produce same address"
         );
     }
@@ -228,16 +292,11 @@ mod tests {
     #[test]
     fn test_derive_bitcoin_address_different_keys_produce_different_addresses() {
         let mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
-        let (_, public_key_hex1, _) =
-            derive_account_keys(mnemonic, 0, &Bitcoin).expect("Should derive key 1");
-        let (_, public_key_hex2, _) =
-            derive_account_keys(mnemonic, 1, &Bitcoin).expect("Should derive key 2");
-
-        let address1 = derive_bitcoin_address(&public_key_hex1).expect("Should derive address 1");
-        let address2 = derive_bitcoin_address(&public_key_hex2).expect("Should derive address 2");
+        let account_1 = derive_account_keys(mnemonic, 0, &Bitcoin).expect("Should derive key 1");
+        let account_2 = derive_account_keys(mnemonic, 1, &Bitcoin).expect("Should derive key 2");
 
         assert_ne!(
-            address1, address2,
+            account_1.address, account_2.address,
             "Different public keys should produce different addresses"
         );
     }
@@ -245,18 +304,16 @@ mod tests {
     #[test]
     fn test_derive_ethereum_address_from_valid_public_key() {
         let mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
-        let (_, public_key_hex, _) =
+        let account =
             derive_account_keys(mnemonic, 0, &Ethereum).expect("Should derive Ethereum keys");
-
-        let address = derive_ethereum_address(&public_key_hex).expect("Should derive address");
 
         // Ethereum address should start with 0x and be 42 chars long (0x + 40 hex chars)
         assert!(
-            address.starts_with("0x"),
+            account.address.starts_with("0x"),
             "Ethereum address should start with 0x"
         );
         assert_eq!(
-            address.len(),
+            account.address.len(),
             42,
             "Ethereum address should be 42 characters (0x + 40 hex)"
         );
@@ -265,14 +322,13 @@ mod tests {
     #[test]
     fn test_derive_ethereum_address_consistent() {
         let mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
-        let (_, public_key_hex, _) =
+        let account_1 =
+            derive_account_keys(mnemonic, 0, &Ethereum).expect("Should derive Ethereum keys");
+        let account_2 =
             derive_account_keys(mnemonic, 0, &Ethereum).expect("Should derive Ethereum keys");
 
-        let address1 = derive_ethereum_address(&public_key_hex).expect("Should derive address 1");
-        let address2 = derive_ethereum_address(&public_key_hex).expect("Should derive address 2");
-
         assert_eq!(
-            address1, address2,
+            account_1.address, account_2.address,
             "Same public key should produce same Ethereum address"
         );
     }
@@ -280,16 +336,11 @@ mod tests {
     #[test]
     fn test_derive_ethereum_address_different_keys_produce_different_addresses() {
         let mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
-        let (_, public_key_hex1, _) =
-            derive_account_keys(mnemonic, 0, &Ethereum).expect("Should derive key 1");
-        let (_, public_key_hex2, _) =
-            derive_account_keys(mnemonic, 1, &Ethereum).expect("Should derive key 2");
-
-        let address1 = derive_ethereum_address(&public_key_hex1).expect("Should derive address 1");
-        let address2 = derive_ethereum_address(&public_key_hex2).expect("Should derive address 2");
+        let account_1 = derive_account_keys(mnemonic, 0, &Ethereum).expect("Should derive key 1");
+        let account_2 = derive_account_keys(mnemonic, 1, &Ethereum).expect("Should derive key 2");
 
         assert_ne!(
-            address1, address2,
+            account_1.address, account_2.address,
             "Different public keys should produce different Ethereum addresses"
         );
     }
