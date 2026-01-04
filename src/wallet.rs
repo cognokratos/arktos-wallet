@@ -15,9 +15,10 @@ pub struct Wallet {
 pub struct Account {
     pub id: i64,
     pub wallet_id: i64,
-    pub account_index: i32,
-    pub encrypted_private_key: String,
+    pub account_index: u32,
+    pub address: String,
     pub public_key: String,
+    pub encrypted_private_key: String,
     pub chain_type: ChainType,
     pub created_at: String,
 }
