@@ -1,6 +1,6 @@
 # Story 2.2: Implement `get_ethereum_address` MCP Tool
 
-Status: review
+Status: done
 
 ## Story
 
