@@ -7,13 +7,13 @@ Status: done
 ## Story
 
 As an AI agent,
-I want to derive and retrieve a Bitcoin public address for a specified wallet ID,
+I want to derive and retrieve a Bitcoin public address for a specified wallet name,
 So that I can receive Bitcoin funds into a managed wallet.
 
 ## Acceptance Criteria
 
 1. **Given** a wallet with associated accounts exists in the system
-2. **When** an MCP client sends a `get_bitcoin_address` request with a valid wallet ID
+2. **When** an MCP client sends a `get_bitcoin_address` request with a valid wallet name
 3. **Then** the system shall derive and return a valid Bitcoin public address for that wallet
 4. **And** the `get_bitcoin_address` MCP API call shall respond within 100 milliseconds 95% of the time.
 
@@ -21,7 +21,7 @@ So that I can receive Bitcoin funds into a managed wallet.
 
 - [x] Implement `get_bitcoin_address` MCP tool (`src/wallet_services.rs`)
   - [x] Define the `get_bitcoin_address` MCP tool and its input/output structures.
-  - [x] Implement input validation for the `wallet_id`.
+  - [x] Implement input validation for the `wallet_name`.
   - [x] Call `wallet_manager` to derive the Bitcoin address.
 - [x] Implement Bitcoin address derivation logic (`src/wallet_manager.rs`)
   - [x] Retrieve the wallet's extended public key (or necessary components) using `wallet_store`.
@@ -31,8 +31,8 @@ So that I can receive Bitcoin funds into a managed wallet.
   - [x] Ensure efficient retrieval of wallet/account data required for address derivation.
 - [x] Add unit tests for address derivation logic (`src/wallet_manager.rs`).
 - [x] Add integration tests for the `get_bitcoin_address` MCP endpoint (`tests/integration_tests.rs`).
-  - [x] Verify successful address derivation for valid wallet IDs.
-  - [x] Verify error handling for invalid or non-existent wallet IDs.
+  - [x] Verify successful address derivation for valid wallet names.
+  - [x] Verify error handling for invalid or non-existent wallet names.
   - [x] Verify performance meets NFR2 (100ms response time).
 - [x] Update API documentation (rustdoc) for `get_bitcoin_address` tool.
 
@@ -82,7 +82,7 @@ Claude 3.5 Sonnet
 
 All acceptance criteria satisfied:
 1. ✅ AC1: Wallet with associated accounts exists in system
-2. ✅ AC2: MCP client can send `get_bitcoin_address` request with valid wallet ID
+2. ✅ AC2: MCP client can send `get_bitcoin_address` request with valid wallet name
 3. ✅ AC3: System derives and returns valid Bitcoin public address for wallet
 4. ✅ AC4: `get_bitcoin_address` MCP API call responds within 100ms 95% of the time (measured at p95=16ms)
 
@@ -107,7 +107,7 @@ All acceptance criteria satisfied:
 
 3. **MCP Tool Handler** (`src/mcp.rs`):
    - Added `get_bitcoin_address` MCP tool with proper API key extraction
-   - Tool description: "Derive and retrieve a Bitcoin public address for a specified wallet ID."
+   - Tool description: "Derive and retrieve a Bitcoin public address for a specified wallet name."
    - Integrated with existing MCP framework using macro-based tool handlers
 
 4. **Integration Tests** (`tests/integration_tests.rs`):

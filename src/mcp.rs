@@ -1,5 +1,7 @@
 use crate::api_key::ApiKey;
-use crate::wallet_services::{CreateWalletRequest, GetBitcoinAddressRequest, WalletServices};
+use crate::wallet_services::{
+    CreateWalletRequest, GetBitcoinAddressRequest, GetEthereumAddressRequest, WalletServices,
+};
 use http::request::Parts;
 use rmcp::handler::server::tool::Extension;
 use rmcp::handler::server::tool::ToolRouter;
@@ -74,6 +76,31 @@ impl McpServer {
             .map_err(|e| {
                 ErrorData::internal_error(
                     format!("Failed to get Bitcoin address: {}", e),
+                    e.maybe_to_value(),
+                )
+            })
+    }
+
+    #[tool(
+        name = "get_ethereum_address",
+        description = "Derive and retrieve an Ethereum public address for a specified wallet ID."
+    )]
+    async fn get_ethereum_address(
+        &self,
+        Extension(parts): Extension<Parts>,
+        Parameters(req): Parameters<GetEthereumAddressRequest>,
+    ) -> Result<String, ErrorData> {
+        let api_key = parts
+            .extensions
+            .get::<ApiKey>()
+            .ok_or_else(|| ErrorData::invalid_request("Missing API Key".to_string(), None))?;
+        self.services
+            .get_ethereum_address(api_key, req)
+            .await
+            .map(|r| r.to_string())
+            .map_err(|e| {
+                ErrorData::internal_error(
+                    format!("Failed to get Ethereum address: {}", e),
                     e.maybe_to_value(),
                 )
             })
