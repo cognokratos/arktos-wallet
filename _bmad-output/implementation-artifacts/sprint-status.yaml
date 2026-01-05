@@ -13,4 +13,4 @@ stories:
     status: "done"
   - id: "Story 2.3"
     description: "Implement Operational Endpoints and Documentation for Developer and User Experience"
-    status: "ready-for-dev"
+    status: "done"
