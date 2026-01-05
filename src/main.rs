@@ -1,3 +1,4 @@
+use arktos_wallet::api_info::{api_doc, health};
 use arktos_wallet::auth::{
     AppState, admin_auth, api_key_auth, create_api_key, list_api_keys, revoke_api_key,
     rotate_api_key,
@@ -64,14 +65,18 @@ async fn main() -> anyhow::Result<()> {
         .layer(from_fn_with_state(app_state.clone(), api_key_auth));
 
     let app = Router::new()
-        .route("/healthz", get(|| async { "OK" }))
+        .route("/healthz", get(health))
         .nest("/admin", admin_routes)
         .merge(mcp_routes)
-        .with_state(app_state);
+        .with_state(app_state)
+        .merge(api_doc());
 
     let addr: SocketAddr = "0.0.0.0:8080".parse()?;
     tracing::info!("Listening on http://{addr}");
     tracing::info!("MCP endpoint: http://{addr}/mcp");
+    tracing::info!("Health check: http://{addr}/healthz");
+    tracing::info!("Swagger UI: http://{addr}/swagger-ui");
+    tracing::info!("OpenAPI Spec: http://{addr}/openapi.json");
 
     // Axum server with graceful shutdown on Ctrl+C
     let listener = tokio::net::TcpListener::bind(addr).await?;

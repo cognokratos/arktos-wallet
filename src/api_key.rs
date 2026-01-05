@@ -5,8 +5,9 @@ use rand::RngCore;
 use rand::rngs::OsRng;
 use serde::Serialize;
 use sha2::Sha256;
+use utoipa::ToSchema;
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, ToSchema)]
 pub struct ApiKey {
     pub id: i64,
     pub name: String,

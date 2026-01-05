@@ -6,7 +6,7 @@ use http::request::Parts;
 use rmcp::handler::server::tool::Extension;
 use rmcp::handler::server::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
-use rmcp::model::{ServerCapabilities, ServerInfo};
+use rmcp::model::{Implementation, ServerCapabilities, ServerInfo};
 use rmcp::{ErrorData, ServerHandler, tool, tool_handler, tool_router};
 use schemars::_private::NoSerialize;
 use std::sync::Arc;
@@ -111,7 +111,17 @@ impl McpServer {
 impl ServerHandler for McpServer {
     fn get_info(&self) -> ServerInfo {
         ServerInfo {
-            instructions: Some("Arktos MCP server over Streamable HTTP".into()),
+            server_info: Implementation {
+                name: env!("CARGO_CRATE_NAME").into(),
+                title: Some("Arktos Wallet MCP Server".into()),
+                version: env!("CARGO_PKG_VERSION").into(),
+                icons: None,
+                website_url: Some("https://github.com/cognokratos/arktos-wallet".into()),
+            },
+            instructions: Some(
+                "This is the MCP server for Arktos Wallet. Use an MCP-compatible client to interact with it."
+                    .into(),
+            ),
             capabilities: ServerCapabilities::builder().enable_tools().build(),
             ..Default::default()
         }
