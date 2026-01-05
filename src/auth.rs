@@ -8,6 +8,7 @@ use axum::middleware::Next;
 use axum::response::IntoResponse;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use utoipa::ToSchema;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -62,16 +63,28 @@ pub async fn api_key_auth(
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub struct CreateApiKeyRequest {
     pub name: String,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub struct NewApiKeyResponse {
     pub api_key: String,
 }
 
+#[utoipa::path(
+    post,
+    path = "/admin/api-keys",
+    params(
+        ("X-API-KEY" = String, Header, description = "Admin API key for authentication")
+    ),
+    request_body = CreateApiKeyRequest,
+    responses(
+        (status = 200, description = "API key created", body = NewApiKeyResponse)
+    ),
+    tag = "admin"
+)]
 pub async fn create_api_key(
     State(state): State<AppState>,
     Json(payload): Json<CreateApiKeyRequest>,
@@ -80,6 +93,17 @@ pub async fn create_api_key(
     Json(NewApiKeyResponse { api_key })
 }
 
+#[utoipa::path(
+    post,
+    path = "/admin/api-keys/{id}/rotate",
+    params(
+        ("X-API-KEY" = String, Header, description = "Admin API key for authentication")
+    ),
+    responses(
+        (status = 200, description = "API key rotated", body = NewApiKeyResponse)
+    ),
+    tag = "admin"
+)]
 pub async fn rotate_api_key(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -90,21 +114,43 @@ pub async fn rotate_api_key(
     })
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub struct ListApiKeysResponse {
     pub api_keys: Vec<ApiKey>,
 }
 
+#[utoipa::path(
+    get,
+    path = "/admin/api-keys",
+    params(
+        ("X-API-KEY" = String, Header, description = "Admin API key for authentication")
+    ),
+    responses(
+        (status = 200, description = "List of API keys", body = ListApiKeysResponse)
+    ),
+    tag = "admin"
+)]
 pub async fn list_api_keys(State(state): State<AppState>) -> Json<ListApiKeysResponse> {
     let api_keys = state.key_services.list().await.unwrap(); // Replace with actual fetching logic
     Json(ListApiKeysResponse { api_keys })
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub struct RevokeApiKeyRequest {
     pub api_key: String,
 }
 
+#[utoipa::path(
+    post,
+    path = "/admin/api-keys/{id}/revoke",
+    params(
+        ("X-API-KEY" = String, Header, description = "Admin API key for authentication")
+    ),
+    responses(
+        (status = 200, description = "API key revoked")
+    ),
+    tag = "admin"
+)]
 pub async fn revoke_api_key(
     State(state): State<AppState>,
     Path(id): Path<i64>,

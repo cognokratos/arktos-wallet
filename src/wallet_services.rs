@@ -8,17 +8,25 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::fmt::Display;
 use std::sync::Arc;
+use tracing::{info, warn};
+use utoipa::ToSchema;
 
-#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+/// Request to create a new wallet with encrypted recovery passphrase.
+#[derive(Debug, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct CreateWalletRequest {
+    /// The name of the wallet to be created.
     #[schemars(description = "The name of the wallet to be created.")]
     pub wallet_name: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+/// Response after successfully creating a wallet.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct CreateWalletResponse {
+    /// Unique wallet identifier.
     pub wallet_id: i64,
+    /// Name of the created wallet.
     pub wallet_name: String,
+    /// Timestamp of wallet creation.
     pub created_at: String,
 }
 
@@ -32,19 +40,27 @@ impl Display for CreateWalletResponse {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, JsonSchema, Clone)]
+/// Request to get a Bitcoin address for a wallet.
+#[derive(Debug, Serialize, Deserialize, JsonSchema, Clone, ToSchema)]
 pub struct GetBitcoinAddressRequest {
+    /// The wallet name to derive the Bitcoin address for.
     #[schemars(description = "The wallet name to derive the Bitcoin address for.")]
     pub wallet_name: String,
+    /// The account index for derivation (default: 0).
     #[schemars(description = "The account index for derivation (default: 0).")]
     pub account_index: Option<u32>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+/// Response containing a derived Bitcoin address.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct BitcoinAddressResponse {
+    /// Name of the wallet.
     pub wallet_name: String,
+    /// Account index used for derivation.
     pub account_index: u32,
+    /// Derived Bitcoin public address.
     pub bitcoin_address: String,
+    /// Timestamp of address creation.
     pub created_at: String,
 }
 
@@ -58,19 +74,27 @@ impl Display for BitcoinAddressResponse {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, JsonSchema, Clone)]
+/// Request to get an Ethereum address for a wallet.
+#[derive(Debug, Serialize, Deserialize, JsonSchema, Clone, ToSchema)]
 pub struct GetEthereumAddressRequest {
+    /// The wallet name to derive the Ethereum address for.
     #[schemars(description = "The wallet name to derive the Ethereum address for.")]
     pub wallet_name: String,
+    /// The account index for derivation (default: 0).
     #[schemars(description = "The account index for derivation (default: 0).")]
     pub account_index: Option<u32>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+/// Response containing a derived Ethereum address.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct EthereumAddressResponse {
+    /// Name of the wallet.
     pub wallet_name: String,
+    /// Account index used for derivation.
     pub account_index: u32,
+    /// Derived Ethereum public address.
     pub ethereum_address: String,
+    /// Timestamp of address creation.
     pub created_at: String,
 }
 
@@ -90,6 +114,11 @@ pub struct WalletServices {
 }
 
 impl WalletServices {
+    /// Create a new instance of WalletServices.
+    ///
+    /// # Arguments
+    /// * `db` - Arc-wrapped Database instance for persistence
+    /// * `secret_key` - Encryption key for securing passphrases
     pub fn new(db: Arc<Database>, secret_key: String) -> Self {
         Self {
             store: WalletStore::new(db),
@@ -97,20 +126,47 @@ impl WalletServices {
         }
     }
 
-    /// Create a new wallet with encrypted recovery passphrase
+    /// Create a new wallet with encrypted recovery passphrase.
+    ///
+    /// This function generates a BIP39 mnemonic, encrypts it with the secret key,
+    /// and stores the wallet in the database.
+    ///
+    /// # Arguments
+    /// * `api_key` - The API key of the wallet owner
+    /// * `req` - The wallet creation request containing wallet name
+    ///
+    /// # Returns
+    /// * `CreateWalletResponse` - Contains the wallet ID, name, and creation timestamp
+    ///
+    /// # Errors
+    /// * Returns `AppError::InvalidInput` if wallet name is empty or exceeds 255 characters
+    /// * Returns `AppError::WalletAlreadyExists` if a wallet with the same name exists
+    /// * Returns `AppError::DatabaseError` for database failures
+    /// * Returns `AppError::InternalError` for encryption or passphrase generation failures
     pub async fn create_wallet(
         &self,
         api_key: &ApiKey,
         req: CreateWalletRequest,
     ) -> Result<CreateWalletResponse, AppError> {
+        info!(
+            wallet_name = %req.wallet_name,
+            api_key_id = %api_key.id,
+            "Creating new wallet"
+        );
+
         // Validate input
         if req.wallet_name.is_empty() {
+            warn!("Wallet creation failed: empty name");
             return Err(AppError::InvalidInput(
                 "Wallet name cannot be empty".to_string(),
             ));
         }
 
         if req.wallet_name.len() > 255 {
+            warn!(
+                wallet_name_len = req.wallet_name.len(),
+                "Wallet creation failed: name exceeds max length"
+            );
             return Err(AppError::InvalidInput(
                 "Wallet name exceeds maximum length of 255 characters".to_string(),
             ));
@@ -123,17 +179,20 @@ impl WalletServices {
             .map_err(|e| AppError::DatabaseError(e.to_string()))?
             .is_some()
         {
+            warn!(wallet_name = %req.wallet_name, "Wallet already exists");
             return Err(AppError::WalletAlreadyExists(req.wallet_name));
         }
 
         // Generate recovery passphrase
         let recovery_passphrase = wallet_manager::generate_recovery_passphrase().map_err(|e| {
+            warn!("Failed to generate recovery passphrase: {}", e);
             AppError::InternalError(format!("Failed to generate passphrase: {}", e))
         })?;
 
         // Encrypt the passphrase
         let encrypted_passphrase = crypto::encrypt_secret(&recovery_passphrase, &self.secret_key)
             .map_err(|e| {
+            warn!("Failed to encrypt recovery passphrase: {}", e);
             AppError::InternalError(format!("Failed to encrypt passphrase: {}", e))
         })?;
 
@@ -141,7 +200,17 @@ impl WalletServices {
         let wallet = self
             .store
             .create_wallet(api_key.id, &req.wallet_name, &encrypted_passphrase)
-            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+            .map_err(|e| {
+                warn!("Database error during wallet creation: {}", e);
+                AppError::DatabaseError(e.to_string())
+            })?;
+
+        info!(
+            wallet_id = wallet.id,
+            wallet_name = %wallet.name,
+            created_at = %wallet.created_at,
+            "Wallet created successfully"
+        );
 
         Ok(CreateWalletResponse {
             wallet_id: wallet.id,
@@ -151,19 +220,48 @@ impl WalletServices {
     }
 
     /// Get or derive Bitcoin address for a wallet
+    ///
+    /// Retrieves an existing Bitcoin address or derives a new one if it doesn't exist.
+    /// Uses BIP32/BIP44 derivation paths for deterministic address generation.
+    ///
+    /// # Arguments
+    /// * `api_key` - The API key of the wallet owner
+    /// * `req` - Request with wallet name and optional account index (default: 0)
+    ///
+    /// # Returns
+    /// * `BitcoinAddressResponse` - Contains the derived address and account metadata
+    ///
+    /// # Errors
+    /// * Returns `AppError::WalletNotFound` if the wallet doesn't exist
+    /// * Returns `AppError::DatabaseError` for database failures
     pub async fn get_bitcoin_address(
         &self,
         api_key: &ApiKey,
         req: GetBitcoinAddressRequest,
     ) -> Result<BitcoinAddressResponse, AppError> {
+        let account_index = req.account_index.unwrap_or(0);
+        info!(
+            wallet_name = %req.wallet_name,
+            account_index = account_index,
+            api_key_id = %api_key.id,
+            "Retrieving Bitcoin address"
+        );
+
         let bitcoin_account = self
             .create_or_get_account(
                 api_key,
                 req.wallet_name.clone(),
-                req.account_index.unwrap_or(0),
+                account_index,
                 ChainType::Bitcoin,
             )
             .await?;
+
+        info!(
+            wallet_name = %req.wallet_name,
+            bitcoin_address = %bitcoin_account.address,
+            account_index = bitcoin_account.account_index,
+            "Bitcoin address retrieved successfully"
+        );
 
         Ok(BitcoinAddressResponse {
             wallet_name: req.wallet_name,
@@ -173,20 +271,49 @@ impl WalletServices {
         })
     }
 
-    /// Get or derive Ethereum address for a wallet
+    /// Get or derive Ethereum address for a wallet.
+    ///
+    /// Retrieves an existing Ethereum address or derives a new one if it doesn't exist.
+    /// Uses BIP32/BIP44 derivation paths for deterministic address generation.
+    ///
+    /// # Arguments
+    /// * `api_key` - The API key of the wallet owner
+    /// * `req` - Request with wallet name and optional account index (default: 0)
+    ///
+    /// # Returns
+    /// * `EthereumAddressResponse` - Contains the derived address and account metadata
+    ///
+    /// # Errors
+    /// * Returns `AppError::WalletNotFound` if the wallet doesn't exist
+    /// * Returns `AppError::DatabaseError` for database failures
     pub async fn get_ethereum_address(
         &self,
         api_key: &ApiKey,
         req: GetEthereumAddressRequest,
     ) -> Result<EthereumAddressResponse, AppError> {
+        let account_index = req.account_index.unwrap_or(0);
+        info!(
+            wallet_name = %req.wallet_name,
+            account_index = account_index,
+            api_key_id = %api_key.id,
+            "Retrieving Ethereum address"
+        );
+
         let ethereum_account = self
             .create_or_get_account(
                 api_key,
                 req.wallet_name.clone(),
-                req.account_index.unwrap_or(0),
+                account_index,
                 ChainType::Ethereum,
             )
             .await?;
+
+        info!(
+            wallet_name = %req.wallet_name,
+            ethereum_address = %ethereum_account.address,
+            account_index = ethereum_account.account_index,
+            "Ethereum address retrieved successfully"
+        );
 
         Ok(EthereumAddressResponse {
             wallet_name: req.wallet_name,
@@ -196,7 +323,7 @@ impl WalletServices {
         })
     }
 
-    /// Create or retrieve an account for a wallet with derived keys
+    /// Create or retrieve an account for a wallet with derived keys.
     async fn create_or_get_account(
         &self,
         api_key: &ApiKey,
@@ -208,32 +335,73 @@ impl WalletServices {
         let wallet = self
             .store
             .get_wallet(api_key.id, &wallet_name)
-            .map_err(|e| AppError::DatabaseError(e.to_string()))?
-            .ok_or_else(|| AppError::WalletNotFound(format!("Wallet Name: {}", wallet_name)))?;
+            .map_err(|e| {
+                warn!(
+                    wallet_name = %wallet_name,
+                    error = %e,
+                    "Database error retrieving wallet"
+                );
+                AppError::DatabaseError(e.to_string())
+            })?
+            .ok_or_else(|| {
+                warn!(wallet_name = %wallet_name, "Wallet not found");
+                AppError::WalletNotFound(format!("Wallet Name: {}", wallet_name))
+            })?;
 
         // Check if account already exists
         if let Ok(Some(account)) = self
             .store
             .get_account(wallet.id, account_index, &chain_type)
         {
+            info!(
+                wallet_id = wallet.id,
+                account_index = account_index,
+                chain_type = ?chain_type,
+                "Account already exists, returning existing account"
+            );
             return Ok(account);
         }
+
+        info!(
+            wallet_id = wallet.id,
+            account_index = account_index,
+            chain_type = ?chain_type,
+            "Creating new account"
+        );
 
         // Decrypt the wallet's passphrase
         let decrypted_passphrase =
             crypto::decrypt_secret(&wallet.encrypted_passphrase, &self.secret_key).map_err(
-                |e| AppError::InternalError(format!("Failed to decrypt passphrase: {}", e)),
+                |e| {
+                    warn!(
+                        wallet_id = wallet.id,
+                        error = %e,
+                        "Failed to decrypt wallet passphrase"
+                    );
+                    AppError::InternalError(format!("Failed to decrypt passphrase: {}", e))
+                },
             )?;
 
         let account_data =
             wallet_manager::derive_account_keys(&decrypted_passphrase, account_index, &chain_type)
                 .map_err(|e| {
+                    warn!(
+                        wallet_id = wallet.id,
+                        account_index = account_index,
+                        error = %e,
+                        "Failed to derive account keys"
+                    );
                     AppError::InternalError(format!("Failed to derive account keys: {}", e))
                 })?;
 
         // Encrypt the derived private key
         let encrypted_private_key =
             crypto::encrypt_secret(&account_data.private_key, &self.secret_key).map_err(|e| {
+                warn!(
+                    wallet_id = wallet.id,
+                    error = %e,
+                    "Failed to encrypt private key"
+                );
                 AppError::InternalError(format!("Failed to encrypt private key: {}", e))
             })?;
 
@@ -248,7 +416,23 @@ impl WalletServices {
                 &encrypted_private_key,
                 &chain_type,
             )
-            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+            .map_err(|e| {
+                warn!(
+                    wallet_id = wallet.id,
+                    account_index = account_index,
+                    error = %e,
+                    "Database error creating account"
+                );
+                AppError::DatabaseError(e.to_string())
+            })?;
+
+        info!(
+            wallet_id = wallet.id,
+            account_index = account.account_index,
+            chain_type = ?chain_type,
+            address = %account.address,
+            "Account created successfully"
+        );
 
         Ok(account)
     }
