@@ -1,12 +1,13 @@
 //! HTTP application wiring shared by the binary and integration tests.
 //!
 //! ```text
-//! /healthz   → health check (no auth)
+//! /healthz   → liveness (no auth)
+//! /readyz    → readiness: database accessible (no auth)
 //! /admin/*   → REST admin API (admin API key)
 //! /mcp       → stateless MCP 2026-07-28 endpoint (client API key)
 //! ```
 
-use crate::api_info::{api_doc, health};
+use crate::api_info::{api_doc, health, ready};
 use crate::auth::{
     AppState, admin_auth, api_key_auth, create_api_key, list_api_keys, revoke_api_key,
     rotate_api_key,
@@ -44,6 +45,7 @@ pub fn router(
 
     Router::new()
         .route("/healthz", get(health))
+        .route("/readyz", get(ready))
         .nest("/admin", admin_routes)
         .merge(mcp_routes)
         .with_state(app_state)

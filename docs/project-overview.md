@@ -47,13 +47,14 @@ The project is a **monolith**, with a single, cohesive codebase designed to be s
 arktos-wallet/
 ├── src/
 │   ├── main.rs          # Application entry point, configuration, graceful shutdown
-│   ├── app.rs           # HTTP router: /healthz, /admin/*, /mcp
+│   ├── app.rs           # HTTP router: /healthz, /readyz, /admin/*, /mcp
 │   ├── mcp.rs           # MCP tools and stateless MCP transport
-│   ├── database.rs      # Database operations, encryption/decryption
-│   ├── wallet.rs        # Wallet management logic
-│   └── ...              # Additional modules as needed
-├── db/
-│   └── migrations/       # Database migration scripts (refinery)
+│   ├── database.rs      # SQLCipher connection, configuration, migrations, blocking boundary
+│   ├── key_store.rs     # API-key persistence (SQL)
+│   ├── wallet_store.rs  # Wallet/account persistence (SQL)
+│   ├── crypto.rs, keys.rs  # Field encryption and key hierarchy
+│   └── ...              # Services, MCP, auth
+├── migrations/          # Versioned SQL migrations (V1__initial_schema.sql, …)
 ├── docs/                # Complete documentation
 │   ├── index.md         # Documentation index (you are here!)
 │   ├── architecture.md  # System design and patterns
@@ -126,7 +127,8 @@ All wallet functionality is exposed via Model Context Protocol (MCP) tools:
 
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
-| `/healthz` | GET | Health check / liveness probe |
+| `/healthz` | GET | Liveness probe |
+| `/readyz` | GET | Readiness probe (database accessible) |
 | `/mcp` | POST | MCP `2026-07-28` endpoint (client API key required) |
 | `/admin/api-keys` (+ `/{id}/revoke`, `/{id}/rotate`) | GET/POST | API key administration (admin key required) |
 
@@ -227,9 +229,11 @@ MCP clients ──► Arktos (single instance) ──► SQLCipher file (local v
 
 - **MCP protocol layer**: stateless and horizontally routable — requests carry
   everything needed to serve them.
-- **Current persistence**: a local SQLCipher (SQLite) file, intended for
-  single-instance deployment. Do not share one database file between multiple
-  containers or hosts. Multi-instance persistence is planned for a later stage.
+- **Application deployment**: a single Arktos instance per database.
+- **Persistence**: a local SQLCipher (SQLite) database with versioned migrations,
+  enforced foreign keys and WAL. SQLite is an intentional choice for a
+  self-hosted wallet (no database server or credentials, transactional,
+  encrypted). Sharing one database file between instances is not supported.
 
 ## Key Documentation
 

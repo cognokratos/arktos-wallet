@@ -81,6 +81,7 @@ async fn test_wallet_persistence_after_creation() {
 
         let wallet = wallet_store
             .get_wallet(api_key.id, "PersistenceTest")
+            .await
             .expect("Should retrieve wallet")
             .expect("Wallet should exist");
 
@@ -162,6 +163,7 @@ async fn test_wallet_and_account_creation_integration() {
     // Step 7: Verify accounts are persisted in database
     let stored_account = wallet_store
         .get_account(wallet_id, 0, &Bitcoin)
+        .await
         .expect("Failed to query account")
         .expect("Account should exist in database");
 

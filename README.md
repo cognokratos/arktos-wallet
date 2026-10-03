@@ -53,9 +53,9 @@ For deployment details, see [Deployment Guide](./docs/deployment-guide.md).
 - ✅ Wallet creation with secure recovery passphrases
 - ✅ Bitcoin & Ethereum address derivation
 - ✅ Multi-account management per wallet
-- ✅ Encrypted SQLite database with SQLCipher
+- ✅ Encrypted SQLite database with SQLCipher, versioned migrations and enforced constraints
 - ✅ Stateless MCP `2026-07-28` HTTP endpoint (`server/discover`, no sessions) with API key authentication
-- ✅ Health check endpoint (`/healthz`)
+- ✅ Liveness (`/healthz`) and readiness (`/readyz`) endpoints
 - ✅ Comprehensive audit logging
 - ✅ Stateless MCP protocol layer (persistent wallet data in a local, single-instance SQLCipher database)
 
@@ -94,7 +94,7 @@ Replace API key authentication with your identity provider (e.g., OAuth2, JWT, m
 The architecture supports encryption and audit logging requirements for GDPR, HIPAA, and other regulations. See [Regional Compliance](./docs/regional-compliance.md) for guidance.
 
 ### Customize Database & Storage
-Swap SQLite for PostgreSQL, MongoDB, or other storage backends while maintaining the same API contract.
+SQLite + SQLCipher is the intended storage for a self-hosted, single-instance deployment. Persistence is isolated in `Database`, `KeyStore` and `WalletStore`, so another backend can replace them while keeping the same API contract.
 
 ## 🔐 Security & Privacy
 

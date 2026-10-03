@@ -8,6 +8,32 @@ pub const DEFAULT_MCP_ALLOWED_HOSTS: &[&str] = &["localhost", "127.0.0.1", "::1"
 
 pub const MASTER_KEY_VAR: &str = "MASTER_KEY";
 
+/// Settings needed to open the database (used by `migrate` / `db-info`).
+pub struct DatabaseConfig {
+    pub db_path: String,
+    /// SQLCipher key; independent of the application key hierarchy.
+    pub db_key: SecretString,
+}
+
+impl DatabaseConfig {
+    pub fn from_env() -> Result<Self, ConfigError> {
+        Self::from_lookup(|name| env::var(name).ok())
+    }
+
+    pub fn from_lookup(lookup: impl Fn(&str) -> Option<String>) -> Result<Self, ConfigError> {
+        let get = |name: &str| lookup(name).filter(|v| !v.trim().is_empty());
+        Ok(Self {
+            db_key: get("DATABASE_KEY")
+                .map(SecretString::from)
+                .ok_or_else(|| ConfigError("DATABASE_KEY must be set".into()))?,
+            db_path: get("DATABASE_PATH").unwrap_or_else(|| DEFAULT_DATABASE_PATH.to_string()),
+        })
+    }
+}
+
+/// Relative to the working directory; the container image sets an absolute path.
+pub const DEFAULT_DATABASE_PATH: &str = "data/arktos.db";
+
 pub struct Config {
     pub admin_key: SecretString,
     /// SQLCipher key; independent of the application key hierarchy.
@@ -79,7 +105,7 @@ impl Config {
         Ok(Self {
             admin_key,
             db_key,
-            db_path: get("DATABASE_PATH").unwrap_or_else(|| "data/arktos.db".to_string()),
+            db_path: get("DATABASE_PATH").unwrap_or_else(|| DEFAULT_DATABASE_PATH.to_string()),
             master_key,
             mcp_allowed_hosts: parse_allowed_hosts(get("MCP_ALLOWED_HOSTS")),
         })

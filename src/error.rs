@@ -22,6 +22,20 @@ impl fmt::Display for AppError {
     }
 }
 
+impl From<crate::database::StoreError> for AppError {
+    /// Generic mapping for unexpected persistence failures. Details are logged
+    /// by the caller; the client only sees a safe category. Expected cases
+    /// (duplicates, missing records) are mapped explicitly by the services.
+    fn from(err: crate::database::StoreError) -> Self {
+        use crate::database::StoreError;
+        match err {
+            StoreError::Unavailable(_) => AppError::DatabaseError("database unavailable".into()),
+            StoreError::CorruptData(_) => AppError::DatabaseError("stored data is invalid".into()),
+            _ => AppError::DatabaseError("database error".into()),
+        }
+    }
+}
+
 impl From<AppError> for rmcp::ErrorData {
     fn from(err: AppError) -> Self {
         let message = err.to_string();

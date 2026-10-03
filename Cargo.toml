@@ -10,6 +10,9 @@ tokio = { version = "1", features = ["full"] }
 
 # Use rusqlite and bundle SQLCipher + a vendored OpenSSL
 rusqlite = { version = "0.38", features = ["bundled-sqlcipher-vendored-openssl"] }
+# Embedded, versioned SQL migrations (PRAGMA user_version). Pinned to the
+# release line that targets rusqlite 0.38.
+rusqlite_migration = "~2.4"
 
 # Official MCP Rust SDK (MCP 2026-07-28, stateless Streamable HTTP server)
 rmcp = { version = "3.5", default-features = false, features = [
@@ -30,7 +33,6 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # Shutdown token passed to the rmcp HTTP transport
 tokio-util = "0.7"
 anyhow = "1.0.100"
-chrono = { version = "0.4", features = ["serde"] }
 
 bip39 = "2"
 bip32 = "0.5"

@@ -50,10 +50,11 @@ impl TestServer {
                 .expect("database"),
         );
         let wallet_services = Arc::new(WalletServices::new(db.clone(), test_keyring().wallet));
-        let key_services = Arc::new(KeyServices::new(db, test_keyring().api_keys));
+        let key_services = Arc::new(KeyServices::new(db.clone(), test_keyring().api_keys));
         let app_state = AppState {
             key_services: key_services.clone(),
             admin_api_key: Arc::new(secrecy::SecretString::from("admin-key")),
+            database: db,
         };
         let shutdown = CancellationToken::new();
         let app = router(
@@ -570,4 +571,52 @@ async fn wallets_are_isolated_per_api_key() {
     .await
     .expect("bob address");
     assert_ne!(address(text(&alice_addr)), address(text(&bob_addr)));
+}
+
+// ---------------------------------------------------------------------------
+// Health, readiness and admin error handling
+// ---------------------------------------------------------------------------
+
+fn base_url(server: &TestServer) -> String {
+    server.url.trim_end_matches("/mcp").to_string()
+}
+
+#[tokio::test]
+async fn readiness_reports_database_access() {
+    let server = TestServer::start().await;
+    let response = reqwest::get(format!("{}/readyz", base_url(&server)))
+        .await
+        .expect("request");
+    assert_eq!(response.status(), 200);
+    assert_eq!(response.text().await.unwrap(), "READY");
+}
+
+#[tokio::test]
+async fn admin_endpoints_return_controlled_errors() {
+    let server = TestServer::start().await;
+    let client = reqwest::Client::new();
+    let base = base_url(&server);
+
+    for path in ["/admin/api-keys/9999/rotate", "/admin/api-keys/9999/revoke"] {
+        let response = client
+            .post(format!("{base}{path}"))
+            .header("X-API-KEY", "admin-key")
+            .send()
+            .await
+            .expect("request");
+        assert_eq!(response.status(), 404, "{path}");
+    }
+
+    let response = client
+        .post(format!("{base}/admin/api-keys"))
+        .header("X-API-KEY", "admin-key")
+        .json(&json!({ "name": "" }))
+        .send()
+        .await
+        .expect("request");
+    assert_eq!(response.status(), 400, "empty key name violates the schema");
+    assert!(
+        !response.text().await.unwrap().contains("CHECK"),
+        "no raw SQL errors"
+    );
 }

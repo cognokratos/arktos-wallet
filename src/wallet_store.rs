@@ -1,190 +1,205 @@
-use crate::database::Database;
+//! Wallet and account persistence. All queries are scoped by the owning API
+//! key (`key_id`), so one owner can never read another owner's wallets.
+
+use crate::database::{Database, StoreError};
 use crate::wallet::{Account, ChainType, Wallet};
-use anyhow::{Context, Result};
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{OptionalExtension, Row, params};
 use std::str::FromStr;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+
+/// Public data of a newly derived account.
+pub struct NewAccount {
+    pub wallet_id: i64,
+    pub chain_type: ChainType,
+    pub account_index: u32,
+    pub derivation_path: String,
+    pub public_key: String,
+    pub address: String,
+}
 
 pub struct WalletStore {
-    conn: Arc<Mutex<Connection>>,
+    db: Arc<Database>,
+}
+
+const WALLET_COLUMNS: &str = "id, name, encrypted_passphrase, created_at";
+const ACCOUNT_COLUMNS: &str =
+    "id, wallet_id, account_index, derivation_path, address, public_key, chain_type, created_at";
+
+fn wallet_from_row(row: &Row<'_>) -> rusqlite::Result<Wallet> {
+    Ok(Wallet {
+        id: row.get(0)?,
+        name: row.get(1)?,
+        encrypted_passphrase: row.get(2)?,
+        created_at: row.get(3)?,
+    })
+}
+
+/// Map an account row; an unknown chain type is reported as corrupt data.
+fn account_from_row(row: &Row<'_>) -> rusqlite::Result<Result<Account, StoreError>> {
+    let chain: String = row.get(6)?;
+    let Ok(chain_type) = ChainType::from_str(&chain) else {
+        return Ok(Err(StoreError::CorruptData(format!(
+            "unknown chain type in accounts row {}",
+            row.get::<_, i64>(0)?
+        ))));
+    };
+    Ok(Ok(Account {
+        id: row.get(0)?,
+        wallet_id: row.get(1)?,
+        account_index: row.get(2)?,
+        derivation_path: row.get(3)?,
+        address: row.get(4)?,
+        public_key: row.get(5)?,
+        chain_type,
+        created_at: row.get(7)?,
+    }))
 }
 
 impl WalletStore {
     pub fn new(db: Arc<Database>) -> Self {
-        Self {
-            conn: db.conn.clone(),
-        }
+        Self { db }
     }
 
-    /// Create a wallet with encrypted passphrase
-    pub fn create_wallet(
+    /// Insert a wallet. Fails with [`StoreError::AlreadyExists`] if the owner
+    /// already has a wallet with this name, and [`StoreError::ForeignKeyViolation`]
+    /// if `key_id` does not exist.
+    pub async fn create_wallet(
         &self,
         key_id: i64,
         name: &str,
         encrypted_passphrase: &str,
-    ) -> Result<Wallet> {
-        let conn = self.conn.lock().unwrap();
-
-        conn.execute(
-            "INSERT INTO wallets (key_id, name, encrypted_passphrase) VALUES (?1, ?2, ?3)",
-            params![key_id, name, encrypted_passphrase],
-        )
-        .context("Failed to insert wallet")?;
-
-        let id = conn.last_insert_rowid();
-
-        Ok(Wallet {
-            id,
-            name: name.to_string(),
-            encrypted_passphrase: encrypted_passphrase.to_string(),
-            created_at: chrono::Utc::now().to_rfc3339(),
-        })
-    }
-
-    /// Get wallet by name
-    pub fn get_wallet(&self, key_id: i64, name: &str) -> Result<Option<Wallet>> {
-        let conn = self.conn.lock().unwrap();
-
-        let mut stmt = conn
-            .prepare(
-                "SELECT id, name, encrypted_passphrase, created_at FROM wallets WHERE key_id = ?1 AND name = ?2",
-            )
-            .context("Failed to prepare GET_WALLET statement")?;
-
-        let wallet = stmt
-            .query_row(params![key_id, name], |row| {
-                Ok(Wallet {
-                    id: row.get(0)?,
-                    name: row.get(1)?,
-                    encrypted_passphrase: row.get(2)?,
-                    created_at: row.get(3)?,
-                })
+    ) -> Result<Wallet, StoreError> {
+        let (name, encrypted_passphrase) = (name.to_owned(), encrypted_passphrase.to_owned());
+        self.db
+            .write(move |tx| {
+                Ok(tx.query_row(
+                    &format!(
+                        "INSERT INTO wallets (key_id, name, encrypted_passphrase) VALUES (?1, ?2, ?3)
+                         RETURNING {WALLET_COLUMNS}"
+                    ),
+                    params![key_id, name, encrypted_passphrase],
+                    wallet_from_row,
+                )?)
             })
-            .optional()
-            .context("Failed to query wallet")?;
-
-        Ok(wallet)
+            .await
     }
 
-    /// Get wallet by ID
-    pub fn get_wallet_by_id(&self, key_id: i64, wallet_id: i64) -> Result<Option<Wallet>> {
-        let conn = self.conn.lock().unwrap();
-
-        let mut stmt = conn
-            .prepare("SELECT id, name, encrypted_passphrase, created_at FROM wallets WHERE key_id = ?1 AND id = ?2")
-            .context("Failed to prepare GET_WALLET_BY_ID statement")?;
-
-        let wallet = stmt
-            .query_row(params![key_id, wallet_id], |row| {
-                Ok(Wallet {
-                    id: row.get(0)?,
-                    name: row.get(1)?,
-                    encrypted_passphrase: row.get(2)?,
-                    created_at: row.get(3)?,
-                })
+    /// The owner's wallet with this name.
+    pub async fn get_wallet(&self, key_id: i64, name: &str) -> Result<Option<Wallet>, StoreError> {
+        let name = name.to_owned();
+        self.db
+            .read(move |conn| {
+                Ok(conn
+                    .query_row(
+                        &format!(
+                            "SELECT {WALLET_COLUMNS} FROM wallets WHERE key_id = ?1 AND name = ?2"
+                        ),
+                        params![key_id, name],
+                        wallet_from_row,
+                    )
+                    .optional()?)
             })
-            .optional()
-            .context("Failed to query wallet")?;
-
-        Ok(wallet)
+            .await
     }
 
-    /// Get all wallets
-    pub fn list_wallets(&self, key_id: i64) -> Result<Vec<Wallet>> {
-        let conn = self.conn.lock().unwrap();
-
-        let mut stmt = conn.prepare(
-            "SELECT id, name, encrypted_passphrase, created_at FROM wallets WHERE key_id = ?1 ORDER BY created_at DESC"
-        ).context("Failed to prepare LIST_WALLETS statement")?;
-
-        let wallets = stmt
-            .query_map(params![key_id], |row| {
-                Ok(Wallet {
-                    id: row.get(0)?,
-                    name: row.get(1)?,
-                    encrypted_passphrase: row.get(2)?,
-                    created_at: row.get(3)?,
-                })
-            })
-            .context("Failed to query wallets")?
-            .collect::<Result<Vec<Wallet>, _>>()
-            .context("Failed to collect wallets")?;
-
-        Ok(wallets)
-    }
-
-    /// Create an account for a wallet (public data only; keys are re-derived)
-    pub fn create_account(
+    /// The owner's wallet with this id.
+    pub async fn get_wallet_by_id(
         &self,
+        key_id: i64,
         wallet_id: i64,
-        account_index: u32,
-        address: &str,
-        public_key: &str,
-        chain_type: &ChainType,
-    ) -> Result<Account> {
-        let conn = self.conn.lock().unwrap();
-
-        conn.execute(
-            "INSERT INTO accounts (wallet_id, account_index, address, public_key, chain_type)
-             VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![
-                wallet_id,
-                account_index,
-                address,
-                public_key,
-                chain_type.to_string()
-            ],
-        )
-        .context("Failed to insert account")?;
-
-        let id = conn.last_insert_rowid();
-
-        Ok(Account {
-            id,
-            wallet_id,
-            account_index,
-            address: address.to_string(),
-            public_key: public_key.to_string(),
-            chain_type: chain_type.clone(),
-            created_at: chrono::Utc::now().to_rfc3339(),
-        })
+    ) -> Result<Option<Wallet>, StoreError> {
+        self.db
+            .read(move |conn| {
+                Ok(conn
+                    .query_row(
+                        &format!(
+                            "SELECT {WALLET_COLUMNS} FROM wallets WHERE key_id = ?1 AND id = ?2"
+                        ),
+                        params![key_id, wallet_id],
+                        wallet_from_row,
+                    )
+                    .optional()?)
+            })
+            .await
     }
 
-    /// Get account by wallet_id, account_index, and chain_type
-    pub fn get_account(
+    /// All of the owner's wallets, newest first.
+    pub async fn list_wallets(&self, key_id: i64) -> Result<Vec<Wallet>, StoreError> {
+        self.db
+            .read(move |conn| {
+                let mut stmt = conn.prepare(&format!(
+                    "SELECT {WALLET_COLUMNS} FROM wallets WHERE key_id = ?1 ORDER BY created_at DESC, id DESC"
+                ))?;
+                let wallets = stmt
+                    .query_map(params![key_id], wallet_from_row)?
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
+                Ok(wallets)
+            })
+            .await
+    }
+
+    /// The account for wallet + chain + index, if it was derived before.
+    pub async fn get_account(
         &self,
         wallet_id: i64,
         account_index: u32,
         chain_type: &ChainType,
-    ) -> Result<Option<Account>> {
-        let conn = self.conn.lock().unwrap();
+    ) -> Result<Option<Account>, StoreError> {
+        let chain = chain_type.to_string();
+        self.db
+            .read(move |conn| {
+                conn.query_row(
+                    &format!(
+                        "SELECT {ACCOUNT_COLUMNS} FROM accounts
+                         WHERE wallet_id = ?1 AND account_index = ?2 AND chain_type = ?3"
+                    ),
+                    params![wallet_id, account_index, chain],
+                    account_from_row,
+                )
+                .optional()?
+                .transpose()
+            })
+            .await
+    }
 
-        let mut stmt = conn
-            .prepare(
-                "SELECT id, wallet_id, account_index, address, public_key, chain_type, created_at
-                 FROM accounts WHERE wallet_id = ?1 AND account_index = ?2 AND chain_type = ?3",
-            )
-            .context("Failed to prepare GET_ACCOUNT statement")?;
-
-        let account = stmt
-            .query_row(
-                params![wallet_id, account_index, chain_type.to_string()],
-                |row| {
-                    let chain_type: String = row.get(5)?;
-                    let chain_type = ChainType::from_str(&chain_type);
-                    Ok(Account {
-                        id: row.get(0)?,
-                        wallet_id: row.get(1)?,
-                        account_index: row.get(2)?,
-                        address: row.get(3)?,
-                        public_key: row.get(4)?,
-                        chain_type: chain_type.unwrap(),
-                        created_at: row.get(6)?,
-                    })
-                },
-            )
-            .optional()
-            .context("Failed to query account")?;
-        Ok(account)
+    /// Insert an account, or return the existing one if a concurrent request
+    /// inserted it first. Derivation is deterministic, so both rows are equal;
+    /// the UNIQUE constraint makes this race-safe.
+    pub async fn insert_account(&self, account: NewAccount) -> Result<Account, StoreError> {
+        self.db
+            .write(move |tx| {
+                let chain = account.chain_type.to_string();
+                tx.execute(
+                    "INSERT INTO accounts
+                         (wallet_id, chain_type, account_index, derivation_path, public_key, address)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                     ON CONFLICT (wallet_id, chain_type, account_index) DO NOTHING",
+                    params![
+                        account.wallet_id,
+                        chain,
+                        account.account_index,
+                        account.derivation_path,
+                        account.public_key,
+                        account.address
+                    ],
+                )?;
+                let stored = tx
+                    .query_row(
+                        &format!(
+                            "SELECT {ACCOUNT_COLUMNS} FROM accounts
+                             WHERE wallet_id = ?1 AND account_index = ?2 AND chain_type = ?3"
+                        ),
+                        params![account.wallet_id, account.account_index, chain],
+                        account_from_row,
+                    )??;
+                if stored.address != account.address || stored.public_key != account.public_key {
+                    return Err(StoreError::CorruptData(format!(
+                        "stored account {} does not match its derivation",
+                        stored.id
+                    )));
+                }
+                Ok(stored)
+            })
+            .await
     }
 }

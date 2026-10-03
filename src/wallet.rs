@@ -28,6 +28,8 @@ pub struct Account {
     pub id: i64,
     pub wallet_id: i64,
     pub account_index: u32,
+    /// Canonical BIP32 path (see `wallet_manager::derivation_path`).
+    pub derivation_path: String,
     pub address: String,
     pub public_key: String,
     pub chain_type: ChainType,
@@ -40,6 +42,7 @@ impl fmt::Debug for Account {
             .field("id", &self.id)
             .field("wallet_id", &self.wallet_id)
             .field("account_index", &self.account_index)
+            .field("derivation_path", &self.derivation_path)
             .field("address", &self.address)
             .field("public_key", &self.public_key)
             .field("chain_type", &self.chain_type)

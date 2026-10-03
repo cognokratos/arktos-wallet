@@ -6,7 +6,7 @@ endif
 IMAGE ?= arktos-wallet:dev
 
 .PHONY: help dev build test nextest check lint fmt fmt-check fix audit deny ci \
-	docker-build docker-lint docker-run sql secret encrypt decrypt hash
+	docker-build docker-lint docker-run migrate db-info sql secret encrypt decrypt hash
 
 help:
 	@echo "Development:"
@@ -31,7 +31,9 @@ help:
 	@echo "  docker-run    Run the Docker image"
 	@echo ""
 	@echo "Secrets & database:"
-	@echo "  sql                     Open the encrypted database using sqlcipher"
+	@echo "  migrate                 Apply pending database migrations and exit"
+	@echo "  db-info                 Show database diagnostics (schema version, pragmas; no secrets)"
+	@echo "  sql                     Open the encrypted database in the sqlcipher shell"
 	@echo "  secret                  Print a new random 32-byte base64 key (MASTER_KEY / DATABASE_KEY)"
 	@echo "  encrypt <plaintext>     Encrypt a recovery phrase with MASTER_KEY"
 	@echo "  decrypt <ciphertext>    Decrypt a stored recovery phrase"
@@ -85,8 +87,18 @@ docker-lint:
 docker-run:
 	@docker run -it --rm --name arktos-wallet -p 8080:8080 -v ./infra/data:/data --env-file infra/.env $(IMAGE)
 
+migrate:
+	@cargo run --quiet --bin arktos-wallet -- migrate
+
+db-info:
+	@cargo run --quiet --bin arktos-wallet -- db-info
+
+# The key is passed via a temporary owner-only init file (not argv, which
+# other users can see in the process list) and quoted as a SQL literal.
 sql:
-	@sqlcipher "$(DATABASE_PATH)" -cmd "PRAGMA key = '$$DATABASE_KEY';"
+	@set -e; init=$$(mktemp); trap 'rm -f "$$init"' EXIT; chmod 600 "$$init"; \
+	printf "PRAGMA key = '%s';\nPRAGMA foreign_keys = ON;\n" "$$(printf '%s' "$$DATABASE_KEY" | sed "s/'/''/g")" > "$$init"; \
+	sqlcipher -init "$$init" "$(DATABASE_PATH)"
 
 # Portable (no openssl/pbcopy needed): 32 bytes from the OS RNG, base64-encoded.
 secret:

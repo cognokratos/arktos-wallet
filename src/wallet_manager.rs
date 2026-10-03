@@ -73,6 +73,18 @@ pub struct AccountData {
     pub address: String,
 }
 
+/// Highest non-hardened BIP32 child index; larger indices are rejected.
+pub const MAX_ACCOUNT_INDEX: u32 = (1 << 31) - 1;
+
+/// Canonical derivation path for a chain and account index. The `accounts`
+/// table enforces the same format with a CHECK constraint.
+pub fn derivation_path(chain_type: &ChainType, account_index: u32) -> String {
+    match chain_type {
+        ChainType::Bitcoin => format!("m/86'/0'/0'/0/{account_index}"),
+        ChainType::Ethereum => format!("m/44'/60'/0'/0/{account_index}"),
+    }
+}
+
 /// Derive an account's public key and address for a given chain.
 ///
 /// Paths: Bitcoin `m/86'/0'/0'/0/{index}` (Taproot, BIP86),
@@ -90,10 +102,10 @@ pub fn derive_account_keys(
     let mut xprv = XPrv::new(seed.as_slice())?;
     drop(seed);
 
-    let derivation_path = match chain_type {
-        ChainType::Bitcoin => format!("m/86'/0'/0'/0/{}", account_index),
-        ChainType::Ethereum => format!("m/44'/60'/0'/0/{}", account_index),
-    };
+    if account_index > MAX_ACCOUNT_INDEX {
+        return Err(anyhow!("account index must be at most {MAX_ACCOUNT_INDEX}"));
+    }
+    let derivation_path = derivation_path(chain_type, account_index);
 
     let path = DerivationPath::from_str(&derivation_path)
         .map_err(|e| anyhow!("Failed to parse derivation path: {}", e))?;

@@ -4,11 +4,13 @@
 //! handlers. `/mcp` is described only at the HTTP level: its payloads are
 //! defined by the MCP specification, not mirrored here.
 
+use crate::auth::AppState;
 use crate::auth::{CreateApiKeyRequest, ListApiKeysResponse, NewApiKeyResponse};
 use crate::wallet_services::{
     BitcoinAddressResponse, CreateWalletRequest, CreateWalletResponse, EthereumAddressResponse,
     GetBitcoinAddressRequest, GetEthereumAddressRequest,
 };
+use axum::extract::State;
 use axum::response::IntoResponse;
 use http::StatusCode;
 use serde_json::{Value, json};
@@ -36,6 +38,27 @@ use utoipa_swagger_ui::SwaggerUi;
 )]
 pub async fn health() -> impl IntoResponse {
     (StatusCode::OK, "OK").into_response()
+}
+
+/// Readiness: migrations ran at startup and the database is readable now.
+/// Read-only and cheap (one schema query on the blocking pool).
+#[utoipa::path(
+    get,
+    path = "/readyz",
+    responses(
+        (status = 200, description = "Ready to serve requests", content_type = "text/plain"),
+        (status = 503, description = "Database not accessible", content_type = "text/plain")
+    ),
+    tag = "health"
+)]
+pub async fn ready(State(state): State<AppState>) -> impl IntoResponse {
+    match state.database.ping().await {
+        Ok(()) => (StatusCode::OK, "READY"),
+        Err(error) => {
+            tracing::warn!(%error, "readiness check failed");
+            (StatusCode::SERVICE_UNAVAILABLE, "NOT READY")
+        }
+    }
 }
 
 // ---------------------------------------------
@@ -229,6 +252,7 @@ impl Modify for McpPath {
     modifiers(&McpPath),
     paths(
         health,
+        ready,
         crate::auth::create_api_key,
         crate::auth::list_api_keys,
         crate::auth::revoke_api_key,

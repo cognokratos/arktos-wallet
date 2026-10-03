@@ -32,7 +32,9 @@ RUN cargo chef cook --release --locked --recipe-path recipe.json
 
 # Copy source code and build
 COPY . .
-RUN cargo build --release --locked --bin arktos-wallet
+# Also create the empty runtime data directory (distroless has no mkdir).
+RUN cargo build --release --locked --bin arktos-wallet \
+    && mkdir -p /out/data
 
 # Stage 3: Runtime
 # Use distroless base image for minimal attack surface
@@ -40,6 +42,11 @@ FROM gcr.io/distroless/cc-debian13:nonroot
 
 # Copy the compiled binary from builder stage
 COPY --from=builder /app/target/release/arktos-wallet /usr/local/bin/
+
+# Database directory owned by the runtime user. A named volume mounted here
+# inherits this ownership when it is first created.
+COPY --from=builder --chown=65532:65532 /out/data /data
+ENV DATABASE_PATH=/data/arktos.db
 
 # Run as the distroless "nonroot" user (numeric so runAsNonRoot can verify it)
 USER 65532:65532

@@ -155,24 +155,33 @@ make deny   # cargo deny check: advisories, licenses, bans, sources (config: den
 
 ## Database Operations
 
-### Running Migrations
+The database is created at `DATABASE_PATH` (default `data/arktos.db`, relative
+to the working directory) the first time Arktos starts. Pending migrations are
+applied automatically at startup.
 
-Apply database migrations:
+| Command | Purpose |
+|---------|---------|
+| `make migrate` | Apply pending migrations and exit (`arktos-wallet migrate`) |
+| `make db-info` | Schema version, SQLCipher version, journal mode, pragmas — no secrets |
+| `make sql` | Open the database in the `sqlcipher` shell (key passed via a temporary owner-only init file, not the command line) |
 
-```bash
-# Using refinery (if configured)
-cargo run --bin migrate
-```
+### Adding a Migration
 
-### Database Management
+1. Add `migrations/V<N>__<description>.sql` (next number, never edit an applied file).
+2. Append it to `MIGRATIONS` in `src/database.rs`.
+3. Run `cargo test`: `migrations_are_valid` applies all migrations to an empty
+   database, and `tests/persistence_tests.rs` checks the resulting schema.
 
-Access the database directly:
+Migrations run inside a transaction and are tracked in `PRAGMA user_version`.
+Arktos refuses to open databases created before migrations existed — delete
+such development databases and let Arktos recreate them.
 
-```bash
-make sql
-# Or manually:
-sqlcipher data/arktos.db
-```
+### Persistence Code
+
+SQL lives only in `src/key_store.rs` and `src/wallet_store.rs`. They call
+`Database::read` / `Database::write`, which run on Tokio's blocking pool
+(`write` wraps the closure in a transaction). Do not call `rusqlite` directly
+from async services.
 
 ## Customization & Extension
 
@@ -272,10 +281,15 @@ RUST_LOG=arktos_wallet::wallet=trace cargo run
 
 ### Runtime Issues
 
-**`SQLCipher: database is locked`**
-- Another process is using the database
-- Check for running instances: `lsof arktos.db`
-- Restart development server
+**`database unavailable: … database is locked`**
+- Another connection (e.g. an open `make sql` session in a transaction) held the write lock longer than the 5 s busy timeout
+- Check for other processes: `lsof data/arktos.db`
+
+**`cannot read database: DATABASE_KEY is wrong …`**
+- The database was created with a different `DATABASE_KEY`
+
+**`database was created by a pre-migration version of Arktos`**
+- Delete the old development database; Arktos recreates it with the current schema
 
 **`Connection refused on port 8080`**
 - Port already in use

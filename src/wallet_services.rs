@@ -1,8 +1,9 @@
 use crate::api_key::ApiKey;
+use crate::database::StoreError;
 use crate::keys::WalletKeys;
 use crate::wallet::{Account, ChainType};
 use crate::wallet_manager::RecoveryPhrase;
-use crate::wallet_store::WalletStore;
+use crate::wallet_store::{NewAccount, WalletStore};
 use crate::{crypto, database::Database, error::AppError, wallet_manager};
 use anyhow::Result;
 use schemars::JsonSchema;
@@ -110,6 +111,12 @@ impl Display for EthereumAddressResponse {
     }
 }
 
+/// Log an unexpected persistence failure and convert it to a safe error.
+fn db_failure(context: &'static str, error: StoreError) -> AppError {
+    warn!(error = %error, "{context}");
+    AppError::from(error)
+}
+
 pub struct WalletServices {
     store: WalletStore,
     keys: WalletKeys,
@@ -174,11 +181,13 @@ impl WalletServices {
             ));
         }
 
-        // Check if wallet already exists
+        // Friendly early exit; the UNIQUE (key_id, name) constraint below is
+        // the authoritative, race-safe check.
         if self
             .store
             .get_wallet(api_key.id, &req.wallet_name)
-            .map_err(|e| AppError::DatabaseError(e.to_string()))?
+            .await
+            .map_err(|e| db_failure("Database error checking wallet", e))?
             .is_some()
         {
             warn!(wallet_name = %req.wallet_name, "Wallet already exists");
@@ -204,9 +213,13 @@ impl WalletServices {
         let wallet = self
             .store
             .create_wallet(api_key.id, &req.wallet_name, &encrypted_passphrase)
-            .map_err(|e| {
-                warn!("Database error during wallet creation: {}", e);
-                AppError::DatabaseError(e.to_string())
+            .await
+            .map_err(|e| match e {
+                StoreError::AlreadyExists => {
+                    warn!(wallet_name = %req.wallet_name, "Wallet already exists");
+                    AppError::WalletAlreadyExists(req.wallet_name.clone())
+                }
+                e => db_failure("Database error during wallet creation", e),
             })?;
 
         info!(
@@ -335,27 +348,30 @@ impl WalletServices {
         account_index: u32,
         chain_type: ChainType,
     ) -> Result<Account, AppError> {
-        // Check if wallet exists
+        if account_index > wallet_manager::MAX_ACCOUNT_INDEX {
+            return Err(AppError::InvalidInput(format!(
+                "account_index must be at most {}",
+                wallet_manager::MAX_ACCOUNT_INDEX
+            )));
+        }
+
+        // Check if wallet exists (scoped to the caller's API key)
         let wallet = self
             .store
             .get_wallet(api_key.id, &wallet_name)
-            .map_err(|e| {
-                warn!(
-                    wallet_name = %wallet_name,
-                    error = %e,
-                    "Database error retrieving wallet"
-                );
-                AppError::DatabaseError(e.to_string())
-            })?
+            .await
+            .map_err(|e| db_failure("Database error retrieving wallet", e))?
             .ok_or_else(|| {
                 warn!(wallet_name = %wallet_name, "Wallet not found");
                 AppError::WalletNotFound(format!("Wallet Name: {}", wallet_name))
             })?;
 
         // Check if account already exists
-        if let Ok(Some(account)) = self
+        if let Some(account) = self
             .store
             .get_account(wallet.id, account_index, &chain_type)
+            .await
+            .map_err(|e| db_failure("Database error retrieving account", e))?
         {
             info!(
                 wallet_id = wallet.id,
@@ -398,25 +414,20 @@ impl WalletServices {
             )?
         };
 
-        // Store account in database
+        // Store public account data; returns the existing row if a concurrent
+        // request derived the same account first.
         let account = self
             .store
-            .create_account(
-                wallet.id,
+            .insert_account(NewAccount {
+                wallet_id: wallet.id,
+                chain_type: chain_type.clone(),
                 account_index,
-                &account_data.address,
-                &account_data.public_key,
-                &chain_type,
-            )
-            .map_err(|e| {
-                warn!(
-                    wallet_id = wallet.id,
-                    account_index = account_index,
-                    error = %e,
-                    "Database error creating account"
-                );
-                AppError::DatabaseError(e.to_string())
-            })?;
+                derivation_path: account_data.derivation_path,
+                public_key: account_data.public_key,
+                address: account_data.address,
+            })
+            .await
+            .map_err(|e| db_failure("Database error creating account", e))?;
 
         info!(
             wallet_id = wallet.id,

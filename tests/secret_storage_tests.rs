@@ -78,10 +78,13 @@ const TEST_ETH_PRIVATE_KEY: &str =
 
 impl Fixture {
     /// Create a wallet holding TEST_MNEMONIC, sealed exactly as create_wallet does.
-    fn known_wallet(&self, owner: &ApiKey, name: &str) {
+    async fn known_wallet(&self, owner: &ApiKey, name: &str) {
         let keys = self.keyring(MASTER).wallet;
         let sealed = crypto::seal(keys.seed.aead(), TEST_MNEMONIC.as_bytes()).unwrap();
-        self.store().create_wallet(owner.id, name, &sealed).unwrap();
+        self.store()
+            .create_wallet(owner.id, name, &sealed)
+            .await
+            .unwrap();
     }
 
     /// Account column names and every cell of every table, read straight
@@ -126,7 +129,7 @@ async fn new_wallets_store_an_encrypted_phrase_in_a_v1_envelope() {
         .await
         .unwrap();
 
-    let wallet = fx.store().get_wallet(owner.id, "w").unwrap().unwrap();
+    let wallet = fx.store().get_wallet(owner.id, "w").await.unwrap().unwrap();
     let envelope: Value =
         serde_json::from_str(&wallet.encrypted_passphrase).expect("v1 JSON envelope");
     assert_eq!(envelope["v"], 1);
@@ -141,7 +144,7 @@ async fn new_wallets_store_an_encrypted_phrase_in_a_v1_envelope() {
 async fn accounts_persist_only_public_data() {
     let fx = Fixture::new();
     let owner = fx.api_key().await;
-    fx.known_wallet(&owner, "known");
+    fx.known_wallet(&owner, "known").await;
     let services = fx.wallet_services(MASTER);
     services
         .get_bitcoin_address(&owner, btc("known"))
@@ -155,12 +158,14 @@ async fn accounts_persist_only_public_data() {
     let wallet_id = fx
         .store()
         .get_wallet(owner.id, "known")
+        .await
         .unwrap()
         .unwrap()
         .id;
     let account = fx
         .store()
         .get_account(wallet_id, 0, &ChainType::Ethereum)
+        .await
         .unwrap()
         .unwrap();
     assert_eq!(account.address, eth_resp.ethereum_address);
@@ -178,7 +183,7 @@ async fn accounts_persist_only_public_data() {
 async fn responses_never_contain_seed_or_private_key() {
     let fx = Fixture::new();
     let owner = fx.api_key().await;
-    fx.known_wallet(&owner, "known");
+    fx.known_wallet(&owner, "known").await;
     let services = fx.wallet_services(MASTER);
     let btc_resp = services
         .get_bitcoin_address(&owner, btc("known"))
@@ -188,7 +193,12 @@ async fn responses_never_contain_seed_or_private_key() {
         .get_ethereum_address(&owner, eth("known"))
         .await
         .unwrap();
-    let wallet = fx.store().get_wallet(owner.id, "known").unwrap().unwrap();
+    let wallet = fx
+        .store()
+        .get_wallet(owner.id, "known")
+        .await
+        .unwrap()
+        .unwrap();
 
     let rendered = format!("{btc_resp} {eth_resp} {btc_resp:?} {eth_resp:?} {wallet:?}");
     assert!(!rendered.contains(TEST_ETH_PRIVATE_KEY), "{rendered}");
@@ -238,7 +248,7 @@ async fn api_key_hashes_depend_on_the_master_key() {
 async fn known_mnemonic_derives_published_addresses_end_to_end() {
     let fx = Fixture::new();
     let owner = fx.api_key().await;
-    fx.known_wallet(&owner, "known");
+    fx.known_wallet(&owner, "known").await;
 
     let services = fx.wallet_services(MASTER);
     let btc_resp = services
@@ -268,6 +278,7 @@ async fn non_envelope_values_are_rejected() {
     // e.g. bare base64(nonce‖ciphertext) without the versioned envelope
     fx.store()
         .create_wallet(owner.id, "raw", "AAECAwQFBgcICQoLhHQcaKnSqbzcg0Vdr_0fa7Dx")
+        .await
         .unwrap();
 
     let err = fx
