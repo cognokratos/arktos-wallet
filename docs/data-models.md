@@ -4,7 +4,7 @@ This document describes the data models used within the Arktos Wallet applicatio
 
 ## Storage Mechanism
 
-The Arktos Wallet server uses **SQLite** as its primary data storage. To ensure the security of sensitive information, such as private keys and passphrases, the SQLite database is encrypted using **SQLCipher**. This is facilitated by the `rusqlite` crate with the `bundled-sqlcipher-vendored-openssl` feature enabled.
+The Arktos Wallet server uses **SQLite** as its primary data storage. To ensure the security of sensitive information, such as recovery passphrases, the SQLite database is encrypted using **SQLCipher**. This is facilitated by the `rusqlite` crate with the `bundled-sqlcipher-vendored-openssl` feature enabled.
 
 ## Data Schemas
 
@@ -22,12 +22,15 @@ Represents a user's wallet, which can hold multiple blockchain accounts.
 
 ### 2. Account
 
-Represents a single blockchain account within a wallet. Each account is associated with a specific private key.
+Represents a single blockchain account within a wallet. Only public data is stored; the account's private key is re-derived from the wallet's passphrase when needed and never persisted.
 
 | Field Name     | Data Type          | Description                                        |
 | :------------- | :----------------- | :------------------------------------------------- |
 | `ID`           | Incremented Integer| A unique, auto-incrementing identifier for the account within the context of its parent wallet. |
-| `Private Key`  | Text (Encrypted)   | The private key for this blockchain account. This is derived from the wallet's passphrase and is stored encrypted. |
+| `Account Index`| Integer            | BIP32 index used for derivation. |
+| `Chain`        | Text               | `Bitcoin` or `Ethereum`. |
+| `Public Key`   | Text               | Compressed public key (`0x`-hex). |
+| `Address`      | Text               | Derived public address. |
 
 ## Relationships
 
@@ -36,4 +39,9 @@ Represents a single blockchain account within a wallet. Each account is associat
 
 ## Encryption
 
-All sensitive data, specifically the `Passphrase` within the `Wallet` model and the `Private Key` within the `Account` model, are encrypted at rest using SQLCipher. This ensures that even if the database file is accessed directly, the contents remain protected. The server handles the encryption and decryption processes transparently to the API consumer.
+Two independent layers protect sensitive data:
+
+* **SQLCipher** (`DATABASE_KEY`) encrypts the entire database file.
+* **Field encryption** (AES-256-GCM) additionally encrypts the `Passphrase` (`wallets.encrypted_passphrase`) with the wallet-seed key derived from `MASTER_KEY` via HKDF-SHA256, so someone who can read the opened database still sees only ciphertext. No private keys are stored.
+
+Values are stored as a versioned envelope `{"v":1,"alg":"A256GCM","nonce":…,"ct":…}`. API keys are stored only as HMAC-SHA256 hashes (`api_keys.key_hash`). See [Architecture — Key Hierarchy & Secret Storage](./architecture.md#key-hierarchy--secret-storage).

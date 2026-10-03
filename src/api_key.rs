@@ -1,10 +1,6 @@
 use axum::http::HeaderMap;
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-use hmac::{Hmac, Mac};
-use rand::RngCore;
-use rand::rngs::OsRng;
 use serde::Serialize;
-use sha2::Sha256;
 use utoipa::ToSchema;
 
 #[derive(Clone, Debug, Serialize, ToSchema)]
@@ -32,19 +28,14 @@ impl ApiKey {
         }
     }
 
-    /// Generate a cryptographically secure random secret
-    pub fn generate() -> String {
-        let mut bytes = [0u8; 32];
-        OsRng.fill_bytes(&mut bytes);
-        URL_SAFE_NO_PAD.encode(bytes)
-    }
-
-    /// Hash the API key using SHA-256
-    pub fn hash(api_key: &str, secret: &str) -> String {
-        let mut mac: Hmac<Sha256> =
-            Hmac::new_from_slice(secret.as_bytes()).expect("HMAC can take key of any size");
-        mac.update(api_key.as_bytes());
-        hex::encode(mac.finalize().into_bytes())
+    /// Generate a new 256-bit API key from the OS random number generator.
+    ///
+    /// Only its HMAC (see [`ApiKeyHmacKey`](crate::keys::ApiKeyHmacKey)) is stored.
+    pub fn generate() -> anyhow::Result<String> {
+        let mut bytes = zeroize::Zeroizing::new([0u8; 32]);
+        getrandom::fill(bytes.as_mut_slice())
+            .map_err(|_| anyhow::anyhow!("OS random number generator failed"))?;
+        Ok(URL_SAFE_NO_PAD.encode(bytes.as_slice()))
     }
 
     /// Extract credentials from request headers

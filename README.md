@@ -12,7 +12,7 @@ Arktos Wallet is a production-ready reference implementation that showcases best
 - **Multi-Account Support**: Manage multiple blockchain accounts under a single system owner
 - **Modern MCP**: Stateless [MCP `2026-07-28`](https://modelcontextprotocol.io/specification/2026-07-28) server built on the official `rmcp` 3.x SDK
 - **API Key Authentication**: MCP access protected by per-client API keys; wallets are scoped to the key
-- **Data Encryption**: AES-256 encryption at rest using SQLCipher for sensitive wallet data
+- **Data Encryption**: SQLCipher database encryption plus AES-256-GCM field encryption of wallet secrets with HKDF-separated keys
 - **Docker Deployment**: Multi-stage Docker builds for lean, production-ready containerization
 - **Extensibility**: Designed as a customizable foundation for builders and system owners
 
@@ -98,13 +98,16 @@ Swap SQLite for PostgreSQL, MongoDB, or other storage backends while maintaining
 
 ## 🔐 Security & Privacy
 
-- **Encryption at Rest**: AES-256 encryption via SQLCipher
-- **Secure Communication**: TLS 1.2+ for all communication
-- **API Key Management**: Secure API key storage and validation
+- **Two Independent Encryption Layers**: SQLCipher encrypts the database file (`DATABASE_KEY`); recovery phrases are additionally encrypted with AES-256-GCM under keys derived from `MASTER_KEY` via HKDF-SHA256, so database access alone does not reveal them
+- **Key Separation**: API-key hashing and seed encryption each use their own derived key; generate secrets with `make secret`
+- **No Private-Key Storage**: only the encrypted recovery phrase is persisted; account keys are re-derived on demand
+- **Secret Hygiene**: Secrets are zeroized after use where practical and never logged or returned (memory secrecy is best-effort, not absolute)
+- **Secure Communication**: Terminate TLS 1.2+ in front of Arktos (it serves plain HTTP)
+- **API Key Management**: Only HMAC-SHA256 hashes of API keys are stored
 - **Audit Logging**: Comprehensive logging of critical wallet operations
 - **No Custodial Control**: System owners maintain full control of encryption keys
 
-For security details, see [Architecture](./docs/architecture.md#security-architecture).
+For security details, see [Architecture — Key Hierarchy & Secret Storage](./docs/architecture.md#key-hierarchy--secret-storage).
 
 ## 📊 Performance Characteristics
 

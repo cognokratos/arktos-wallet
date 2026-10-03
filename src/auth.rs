@@ -6,14 +6,24 @@ use axum::extract::{Path, State};
 use axum::http::{Request, StatusCode};
 use axum::middleware::Next;
 use axum::response::IntoResponse;
+use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use subtle::ConstantTimeEq;
 use utoipa::ToSchema;
 
 #[derive(Clone)]
 pub struct AppState {
     pub key_services: Arc<KeyServices>,
-    pub admin_api_key: String,
+    pub admin_api_key: Arc<SecretString>,
+}
+
+/// Constant-time comparison of a presented admin key (length is not hidden).
+fn is_admin_key(presented: &str, expected: &SecretString) -> bool {
+    presented
+        .as_bytes()
+        .ct_eq(expected.expose_secret().as_bytes())
+        .into()
 }
 
 pub async fn admin_auth(
@@ -22,7 +32,7 @@ pub async fn admin_auth(
     next: Next,
 ) -> impl IntoResponse {
     if let Some(api_key) = ApiKey::extract(req.headers()) {
-        if api_key == state.admin_api_key {
+        if is_admin_key(&api_key, &state.admin_api_key) {
             // Proceed to the next middleware/handler
             next.run(req).await
         } else {
@@ -164,34 +174,49 @@ mod tests {
     use super::*;
     use axum::http::HeaderMap;
 
+    use crate::keys::{Keyring, MasterKey};
+
+    fn hmac_keys() -> Keyring {
+        Keyring::new(&MasterKey::from_bytes([3; 32]))
+    }
+
     #[test]
     fn test_generate_api_key_length() {
-        let key = ApiKey::generate();
+        let key = ApiKey::generate().unwrap();
         assert_eq!(key.len(), 43);
     }
 
     #[test]
     fn test_generate_api_key_uniqueness() {
-        let key1 = ApiKey::generate();
-        let key2 = ApiKey::generate();
+        let key1 = ApiKey::generate().unwrap();
+        let key2 = ApiKey::generate().unwrap();
         assert_ne!(key1, key2);
     }
 
     #[test]
     fn test_hash_api_key() {
         let key = "test_key_12345";
-        let hash = ApiKey::hash(key, "secret");
-        assert!(!hash.is_empty());
+        let hash = hmac_keys().api_keys.hmac.hash(key);
         assert_ne!(hash, key);
-        assert_eq!(hash.len(), 64); // SHA256 produces 64 hex characters
+        assert_eq!(hash.len(), 64); // HMAC-SHA256 produces 64 hex characters
     }
 
     #[test]
     fn test_hash_api_key_deterministic() {
         let key = "test_key_12345";
-        let hash1 = ApiKey::hash(key, "secret");
-        let hash2 = ApiKey::hash(key, "secret");
-        assert_eq!(hash1, hash2);
+        assert_eq!(
+            hmac_keys().api_keys.hmac.hash(key),
+            hmac_keys().api_keys.hmac.hash(key)
+        );
+    }
+
+    #[test]
+    fn test_admin_key_comparison() {
+        let expected = SecretString::from("correct-admin-key");
+        assert!(is_admin_key("correct-admin-key", &expected));
+        assert!(!is_admin_key("correct-admin-kez", &expected));
+        assert!(!is_admin_key("correct-admin-key-longer", &expected));
+        assert!(!is_admin_key("", &expected));
     }
 
     #[test]

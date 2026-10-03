@@ -32,10 +32,10 @@ help:
 	@echo ""
 	@echo "Secrets & database:"
 	@echo "  sql                     Open the encrypted database using sqlcipher"
-	@echo "  secret                  Generate a new 32-byte hex secret (copied to clipboard)"
-	@echo "  encrypt <plaintext>     Encrypt the provided plaintext"
-	@echo "  decrypt <ciphertext>    Decrypt the provided ciphertext"
-	@echo "  hash <input>            Hash the provided input"
+	@echo "  secret                  Print a new random 32-byte base64 key (MASTER_KEY / DATABASE_KEY)"
+	@echo "  encrypt <plaintext>     Encrypt a recovery phrase with MASTER_KEY"
+	@echo "  decrypt <ciphertext>    Decrypt a stored recovery phrase"
+	@echo "  hash <api-key>          Print the stored HMAC of an API key"
 
 dev:
 	@RUST_LOG=debug cargo run --bin arktos-wallet
@@ -88,18 +88,18 @@ docker-run:
 sql:
 	@sqlcipher "$(DATABASE_PATH)" -cmd "PRAGMA key = '$$DATABASE_KEY';"
 
+# Portable (no openssl/pbcopy needed): 32 bytes from the OS RNG, base64-encoded.
 secret:
-	@openssl rand -hex 32 | tr -d "\n" | pbcopy
-	@echo "Generated a new 32-byte hex secret and copied it to clipboard."
+	@cargo run --quiet --bin secret -- generate-key
 
 encrypt:
-	@echo "$(word 2,$(MAKECMDGOALS))" | cargo run --quiet --bin secret -- encrypt --key-env SECRET_KEY
+	@printf '%s' '$(word 2,$(MAKECMDGOALS))' | cargo run --quiet --bin secret -- encrypt
 
 decrypt:
-	@echo "$(word 2,$(MAKECMDGOALS))" | cargo run --quiet --bin secret -- decrypt --key-env SECRET_KEY
+	@printf '%s' '$(word 2,$(MAKECMDGOALS))' | cargo run --quiet --bin secret -- decrypt
 
 hash:
-	@echo "$(word 2,$(MAKECMDGOALS))" | cargo run --quiet --bin secret -- hash --key-env SECRET_KEY
+	@printf '%s' '$(word 2,$(MAKECMDGOALS))' | cargo run --quiet --bin secret -- hash
 
 # Swallow the extra positional argument of encrypt/decrypt/hash.
 %:

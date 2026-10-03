@@ -13,7 +13,7 @@ Arktos is a backend HTTP server developed in Rust. It functions as a monolithic 
 - **Secure Wallet Creation**: Non-custodial wallets with BIP39/BIP32 cryptographic standards
 - **Multi-Account Support**: Manage multiple blockchain accounts under a single wallet
 - **API Key Authentication**: Secure MCP server with API key-based authentication
-- **Data Encryption**: AES-256 encryption at rest using SQLCipher for sensitive data
+- **Data Encryption**: SQLCipher database encryption plus AES-256-GCM field encryption of wallet secrets (HKDF-derived, purpose-separated keys)
 - **Docker Deployment**: Multi-stage Docker builds for lean, production-ready containerization
 - **Audit Logging**: Comprehensive logging of all critical wallet operations
 
@@ -132,8 +132,8 @@ All wallet functionality is exposed via Model Context Protocol (MCP) tools:
 
 ## Security by Default
 
-- ✅ **Encryption at Rest**: AES-256 via SQLCipher
-- ✅ **Encryption in Transit**: TLS 1.2+ required
+- ✅ **Encryption at Rest**: SQLCipher (`DATABASE_KEY`) plus AES-256-GCM field encryption under keys derived from `MASTER_KEY` ([details](./architecture.md#key-hierarchy--secret-storage))
+- ✅ **Encryption in Transit**: TLS 1.2+ terminated in front of Arktos
 - ✅ **API Key Authentication**: Secure MCP endpoint access
 - ✅ **Audit Logging**: All operations logged with timestamp, actor, action
 - ✅ **Access Control**: Ownership-based authorization

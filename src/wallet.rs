@@ -1,26 +1,51 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use std::fmt::Display;
+use std::fmt::{self, Display};
 use std::str::FromStr;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Serialize, Deserialize, PartialEq)]
 pub struct Wallet {
     pub id: i64,
     pub name: String,
+    /// Encrypted recovery phrase (v1 envelope, see `crypto`).
     pub encrypted_passphrase: String,
     pub created_at: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, JsonSchema)]
+impl fmt::Debug for Wallet {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Wallet")
+            .field("id", &self.id)
+            .field("name", &self.name)
+            .field("encrypted_passphrase", &"[REDACTED]")
+            .field("created_at", &self.created_at)
+            .finish()
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize, PartialEq, JsonSchema)]
 pub struct Account {
     pub id: i64,
     pub wallet_id: i64,
     pub account_index: u32,
     pub address: String,
     pub public_key: String,
-    pub encrypted_private_key: String,
     pub chain_type: ChainType,
     pub created_at: String,
+}
+
+impl fmt::Debug for Account {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Account")
+            .field("id", &self.id)
+            .field("wallet_id", &self.wallet_id)
+            .field("account_index", &self.account_index)
+            .field("address", &self.address)
+            .field("public_key", &self.public_key)
+            .field("chain_type", &self.chain_type)
+            .field("created_at", &self.created_at)
+            .finish()
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, JsonSchema)]

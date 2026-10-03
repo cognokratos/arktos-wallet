@@ -8,6 +8,11 @@ use arktos_wallet::{
 use std::sync::Arc;
 use tempfile::TempDir;
 
+/// Deterministic key hierarchy for tests (fixed, non-secret master key).
+fn test_keyring() -> arktos_wallet::keys::Keyring {
+    arktos_wallet::keys::Keyring::new(&arktos_wallet::keys::MasterKey::from_bytes([0x42; 32]))
+}
+
 #[tokio::test]
 async fn test_create_wallet_integration() {
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
@@ -20,8 +25,8 @@ async fn test_create_wallet_integration() {
 
     let db =
         Arc::new(Database::new(&db_path, "test_cipher_key").expect("Failed to create database"));
-    let key_services = KeyServices::new(db.clone(), "secret".to_string());
-    let services = WalletServices::new(db, "test_cipher_key".to_string());
+    let key_services = KeyServices::new(db.clone(), test_keyring().api_keys);
+    let services = WalletServices::new(db, test_keyring().wallet);
 
     let api_key = key_services.create("IntegrationTestAPIKey").await.unwrap();
     let api_key = key_services.validate(&api_key).await.unwrap();
@@ -48,7 +53,7 @@ async fn test_wallet_persistence_after_creation() {
 
     let db =
         Arc::new(Database::new(&db_path, "test_cipher_key").expect("Failed to create database"));
-    let key_services = KeyServices::new(db, "secret".to_string());
+    let key_services = KeyServices::new(db, test_keyring().api_keys);
     let api_key = key_services.create("IntegrationTestAPIKey").await.unwrap();
     let api_key = key_services.validate(&api_key).await.unwrap();
 
@@ -56,7 +61,7 @@ async fn test_wallet_persistence_after_creation() {
         let db = Arc::new(
             Database::new(&db_path, "test_cipher_key").expect("Failed to create database"),
         );
-        let services = WalletServices::new(db, "test_cipher_key".to_string());
+        let services = WalletServices::new(db, test_keyring().wallet);
 
         let req = CreateWalletRequest {
             wallet_name: "PersistenceTest".to_string(),
@@ -95,8 +100,8 @@ async fn test_wallet_and_account_creation_integration() {
 
     let db =
         Arc::new(Database::new(&db_path, "test_cipher_key").expect("Failed to create database"));
-    let key_services = KeyServices::new(db.clone(), "secret".to_string());
-    let services = WalletServices::new(db.clone(), "test_cipher_key".to_string());
+    let key_services = KeyServices::new(db.clone(), test_keyring().api_keys);
+    let services = WalletServices::new(db.clone(), test_keyring().wallet);
 
     let api_key = key_services.create("IntegrationTestAPIKey").await.unwrap();
     let api_key = key_services.validate(&api_key).await.unwrap();
@@ -178,8 +183,8 @@ async fn test_get_bitcoin_address_integration() {
 
     let db =
         Arc::new(Database::new(&db_path, "test_cipher_key").expect("Failed to create database"));
-    let key_services = KeyServices::new(db.clone(), "secret".to_string());
-    let services = WalletServices::new(db, "test_cipher_key".to_string());
+    let key_services = KeyServices::new(db.clone(), test_keyring().api_keys);
+    let services = WalletServices::new(db, test_keyring().wallet);
 
     let api_key = key_services.create("IntegrationTestAPIKey").await.unwrap();
     let api_key = key_services.validate(&api_key).await.unwrap();
@@ -224,8 +229,8 @@ async fn test_get_bitcoin_address_different_indices_produce_different_addresses(
 
     let db =
         Arc::new(Database::new(&db_path, "test_cipher_key").expect("Failed to create database"));
-    let key_services = KeyServices::new(db.clone(), "secret".to_string());
-    let services = WalletServices::new(db, "test_cipher_key".to_string());
+    let key_services = KeyServices::new(db.clone(), test_keyring().api_keys);
+    let services = WalletServices::new(db, test_keyring().wallet);
 
     let api_key = key_services.create("IntegrationTestAPIKey").await.unwrap();
     let api_key = key_services.validate(&api_key).await.unwrap();
@@ -280,8 +285,8 @@ async fn test_get_bitcoin_address_consistency() {
 
     let db =
         Arc::new(Database::new(&db_path, "test_cipher_key").expect("Failed to create database"));
-    let key_services = KeyServices::new(db.clone(), "secret".to_string());
-    let services = WalletServices::new(db, "test_cipher_key".to_string());
+    let key_services = KeyServices::new(db.clone(), test_keyring().api_keys);
+    let services = WalletServices::new(db, test_keyring().wallet);
 
     let api_key = key_services.create("IntegrationTestAPIKey").await.unwrap();
     let api_key = key_services.validate(&api_key).await.unwrap();
@@ -334,8 +339,8 @@ async fn test_get_bitcoin_address_with_default_account_index_integration() {
 
     let db =
         Arc::new(Database::new(&db_path, "test_cipher_key").expect("Failed to create database"));
-    let key_services = KeyServices::new(db.clone(), "secret".to_string());
-    let services = WalletServices::new(db, "test_cipher_key".to_string());
+    let key_services = KeyServices::new(db.clone(), test_keyring().api_keys);
+    let services = WalletServices::new(db, test_keyring().wallet);
 
     let api_key = key_services.create("IntegrationTestAPIKey").await.unwrap();
     let api_key = key_services.validate(&api_key).await.unwrap();
@@ -376,8 +381,8 @@ async fn test_get_bitcoin_address_invalid_wallet_returns_error() {
 
     let db =
         Arc::new(Database::new(&db_path, "test_cipher_key").expect("Failed to create database"));
-    let key_services = KeyServices::new(db.clone(), "secret".to_string());
-    let services = WalletServices::new(db, "test_cipher_key".to_string());
+    let key_services = KeyServices::new(db.clone(), test_keyring().api_keys);
+    let services = WalletServices::new(db, test_keyring().wallet);
 
     let api_key = key_services.create("IntegrationTestAPIKey").await.unwrap();
     let api_key = key_services.validate(&api_key).await.unwrap();
@@ -408,8 +413,8 @@ async fn test_get_bitcoin_address_performance_requirement() {
 
     let db =
         Arc::new(Database::new(&db_path, "test_cipher_key").expect("Failed to create database"));
-    let key_services = KeyServices::new(db.clone(), "secret".to_string());
-    let services = WalletServices::new(db, "test_cipher_key".to_string());
+    let key_services = KeyServices::new(db.clone(), test_keyring().api_keys);
+    let services = WalletServices::new(db, test_keyring().wallet);
 
     let api_key = key_services.create("PerformanceTestAPIKey").await.unwrap();
     let api_key = key_services.validate(&api_key).await.unwrap();

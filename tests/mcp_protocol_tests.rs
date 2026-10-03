@@ -22,6 +22,11 @@ use std::sync::Arc;
 use tempfile::TempDir;
 use tokio_util::sync::CancellationToken;
 
+/// Deterministic key hierarchy for tests (fixed, non-secret master key).
+fn test_keyring() -> arktos_wallet::keys::Keyring {
+    arktos_wallet::keys::Keyring::new(&arktos_wallet::keys::MasterKey::from_bytes([0x42; 32]))
+}
+
 const EXPECTED_TOOLS: [&str; 4] = [
     "create_wallet",
     "get_bitcoin_address",
@@ -44,11 +49,11 @@ impl TestServer {
             Database::new(db_path.to_str().expect("utf-8 path"), "test_cipher_key")
                 .expect("database"),
         );
-        let wallet_services = Arc::new(WalletServices::new(db.clone(), "secret".to_string()));
-        let key_services = Arc::new(KeyServices::new(db, "secret".to_string()));
+        let wallet_services = Arc::new(WalletServices::new(db.clone(), test_keyring().wallet));
+        let key_services = Arc::new(KeyServices::new(db, test_keyring().api_keys));
         let app_state = AppState {
             key_services: key_services.clone(),
-            admin_api_key: "admin-key".to_string(),
+            admin_api_key: Arc::new(secrecy::SecretString::from("admin-key")),
         };
         let shutdown = CancellationToken::new();
         let app = router(

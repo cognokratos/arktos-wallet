@@ -14,7 +14,7 @@ Arktos serves as an **open-source educational reference implementation** demonst
 - **Multi-account management** for blockchain address derivation
 - **Non-custodial architecture** where system owners control all encryption keys
 - **API key authentication** for secure Model Context Protocol (MCP) integration
-- **Encrypted data persistence** using AES-256 via SQLCipher
+- **Two encryption layers**: SQLCipher for the database file, plus AES-256-GCM field encryption of wallet secrets under purpose-specific keys
 - **Production-ready patterns** for deployment, scaling, and compliance
 - **Extensible design** for customization and regional compliance adaptation
 
@@ -121,9 +121,9 @@ Account Table:
 
 ### Encryption Strategy
 
-- **At Rest**: All wallet data encrypted with AES-256 via SQLCipher
-- **In Transit**: TLS 1.2+ required for all HTTP communication
-- **Key Management**: System owner manages master encryption key (not stored in Arktos)
+- **At Rest**: two independent layers — see [Key Hierarchy & Secret Storage](#key-hierarchy--secret-storage)
+- **In Transit**: Arktos serves plain HTTP; terminate TLS (1.2+) at a reverse proxy or load balancer
+- **Key Management**: keys are supplied by the system owner through environment variables and are never written to the database
 
 See [Data Models](./data-models.md) for detailed schema and [Regional Compliance](./regional-compliance.md) for encryption key management patterns.
 
@@ -241,11 +241,76 @@ The API key never appears in tool parameters and is not visible to the model.
 
 ### Data Protection
 
-1. **Encryption at Rest**: AES-256 via SQLCipher for all sensitive wallet data
-2. **Encryption in Transit**: TLS 1.2+ required for all HTTP communication
-3. **Key Management**: Master key controlled by system owner, not stored in Arktos
+1. **Encryption at Rest**: SQLCipher database encryption plus AES-256-GCM field encryption (below)
+2. **Encryption in Transit**: TLS must be terminated in front of Arktos (it serves plain HTTP)
+3. **Key Management**: Keys supplied by the system owner via environment; no HSM/KMS integration yet
 4. **Access Control**: API key-based authentication, ownership-based authorization
-5. **Audit Logging**: All critical operations logged with timestamp, actor, action
+5. **Audit Logging**: Operations logged with wallet names, API-key IDs and public addresses — never secrets
+
+### Key Hierarchy & Secret Storage
+
+Two independently generated secrets protect different things:
+
+```
+DATABASE_KEY  (independent random secret)
+    └── SQLCipher: encrypts the whole SQLite database file
+
+MASTER_KEY  (32 random bytes, base64)
+    └── HKDF-SHA256 (RFC 5869, no salt, purpose label as "info")
+          ├── "arktos/api-key-hmac/v1"            → API-key HMAC-SHA256 key
+          └── "arktos/wallet-seed-encryption/v1"  → AES-256-GCM key for recovery phrases
+
+```
+
+- **Key separation**: the database key is never derived from the master key, so
+  compromising one layer does not reveal the other. Generate each with
+  `make secret` (32 bytes from the OS RNG, base64).
+- **Domain separation**: each purpose has its own HKDF label and its own Rust
+  type (`ApiKeyHmacKey`, `WalletSeedKey`), so one purpose's key
+  cannot be used for another. The purpose is also bound into the AEAD
+  associated data.
+- **Startup validation**: `MASTER_KEY` must decode to exactly 32 bytes;
+  `DATABASE_KEY` must differ from it. Errors name the variable, never the value.
+
+**What each layer protects.** SQLCipher protects the database file at rest
+(e.g. a copied disk or backup). Field encryption protects the recovery phrase
+*inside* an opened database: anyone who can query the
+database (with `DATABASE_KEY`, through a SQL console or a database dump) still
+sees only ciphertext without `MASTER_KEY`. The layers protect against
+different exposures; they do not "double" the strength of AES-256.
+
+**Encrypted-secret envelope (v1).** New ciphertexts are stored as compact JSON:
+
+```json
+{"v":1,"alg":"A256GCM","nonce":"<base64url, 12 bytes>","ct":"<base64url ciphertext‖16-byte tag>"}
+```
+
+Every encryption uses a fresh random nonce from the OS RNG. The associated
+data is `arktos:v1:A256GCM:<purpose>`. Unknown versions or algorithms, wrong
+nonce lengths and malformed values fail with explicit errors; authentication
+failures (wrong key, tampered data) are reported identically as "failed to
+decrypt secret". Anything that is not a v1 envelope is rejected.
+
+**Secret lifecycle.**
+
+| Secret | Plaintext exists | Destroyed |
+|--------|------------------|-----------|
+| Recovery phrase | From generation (128-bit OS entropy) until encrypted in `create_wallet`; from decryption until account derivation | Zeroized on drop at the end of that block |
+| BIP39 seed / extended private keys | During one account derivation | Seed zeroized immediately after `XPrv` creation; extended keys zeroized on drop once the public key is computed |
+| Account private key | Never extracted | Only the public key and address leave the derivation function |
+| Derived subkeys / master key | Process lifetime | Zeroized when dropped at shutdown |
+
+Secret-bearing types redact themselves in `Debug` output, and secrets are
+never logged, returned by MCP tools or admin endpoints, or included in error
+messages. Zeroization reduces how long secrets stay in memory; it cannot
+remove copies made inside third-party libraries (e.g. `bip39::Mnemonic`, the
+BIP32 chain code), by the allocator, by swap/core dumps, or from the process
+environment, where the configured keys remain readable.
+
+**No private-key persistence.** The encrypted recovery phrase is the only
+wallet secret stored. Accounts persist only public data (index, chain, public
+key, address); private keys can always be re-derived from the phrase when a
+future feature (e.g. signing) needs them.
 
 ### Defense in Depth
 
@@ -318,8 +383,8 @@ Arktos architecture supports compliance requirements for various regulations:
 
 ### Key Compliance Features
 
-- ✅ Encryption at rest (AES-256)
-- ✅ Encryption in transit (TLS 1.2+)
+- ✅ Encryption at rest (SQLCipher + AES-256-GCM field encryption)
+- ✅ Encryption in transit (TLS 1.2+ via reverse proxy)
 - ✅ Audit logging of all operations
 - ✅ Access control (API key + ownership)
 - ✅ Data minimization (only essential data)
@@ -350,7 +415,7 @@ Monolithic architecture can evolve to microservices if needed for specific requi
 
 ### Why SQLite + SQLCipher?
 
-- **Encryption**: Built-in AES-256 encryption at rest
+- **Encryption**: Built-in whole-file encryption at rest (complemented by field encryption of secrets)
 - **Simplicity**: No external database service required
 - **Portability**: Single file database, easy to backup and restore
 - **Sufficient Scale**: Supports requirements (10k wallets, 50k+ accounts)

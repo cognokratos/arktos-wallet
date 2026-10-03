@@ -8,6 +8,7 @@ pub mod database;
 pub mod error;
 pub mod key_services;
 pub mod key_store;
+pub mod keys;
 pub mod mcp;
 pub mod wallet;
 pub mod wallet_manager;

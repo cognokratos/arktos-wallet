@@ -1,5 +1,7 @@
 use crate::api_key::ApiKey;
+use crate::keys::WalletKeys;
 use crate::wallet::{Account, ChainType};
+use crate::wallet_manager::RecoveryPhrase;
 use crate::wallet_store::WalletStore;
 use crate::{crypto, database::Database, error::AppError, wallet_manager};
 use anyhow::Result;
@@ -110,7 +112,7 @@ impl Display for EthereumAddressResponse {
 
 pub struct WalletServices {
     store: WalletStore,
-    secret_key: String,
+    keys: WalletKeys,
 }
 
 impl WalletServices {
@@ -118,11 +120,11 @@ impl WalletServices {
     ///
     /// # Arguments
     /// * `db` - Arc-wrapped Database instance for persistence
-    /// * `secret_key` - Encryption key for securing passphrases
-    pub fn new(db: Arc<Database>, secret_key: String) -> Self {
+    /// * `keys` - Wallet-seed encryption key (see `keys`)
+    pub fn new(db: Arc<Database>, keys: WalletKeys) -> Self {
         Self {
             store: WalletStore::new(db),
-            secret_key,
+            keys,
         }
     }
 
@@ -183,18 +185,20 @@ impl WalletServices {
             return Err(AppError::WalletAlreadyExists(req.wallet_name));
         }
 
-        // Generate recovery passphrase
-        let recovery_passphrase = wallet_manager::generate_recovery_passphrase().map_err(|e| {
-            warn!("Failed to generate recovery passphrase: {}", e);
-            AppError::InternalError(format!("Failed to generate passphrase: {}", e))
-        })?;
-
-        // Encrypt the passphrase
-        let encrypted_passphrase = crypto::encrypt_secret(&recovery_passphrase, &self.secret_key)
-            .map_err(|e| {
-            warn!("Failed to encrypt recovery passphrase: {}", e);
-            AppError::InternalError(format!("Failed to encrypt passphrase: {}", e))
-        })?;
+        // Generate the recovery phrase and encrypt it immediately; the
+        // plaintext is zeroized when `recovery_phrase` goes out of scope.
+        let encrypted_passphrase = {
+            let recovery_phrase = wallet_manager::generate_recovery_passphrase().map_err(|e| {
+                warn!(error = %e, "Failed to generate recovery passphrase");
+                AppError::InternalError("Failed to generate passphrase".to_string())
+            })?;
+            crypto::seal(self.keys.seed.aead(), recovery_phrase.expose().as_bytes()).map_err(
+                |e| {
+                    warn!(error = %e, "Failed to encrypt recovery passphrase");
+                    AppError::InternalError(format!("Failed to encrypt passphrase: {e}"))
+                },
+            )?
+        };
 
         // Create wallet in database
         let wallet = self
@@ -369,41 +373,30 @@ impl WalletServices {
             "Creating new account"
         );
 
-        // Decrypt the wallet's passphrase
-        let decrypted_passphrase =
-            crypto::decrypt_secret(&wallet.encrypted_passphrase, &self.secret_key).map_err(
-                |e| {
-                    warn!(
-                        wallet_id = wallet.id,
-                        error = %e,
-                        "Failed to decrypt wallet passphrase"
-                    );
-                    AppError::InternalError(format!("Failed to decrypt passphrase: {}", e))
-                },
-            )?;
-
-        let account_data =
-            wallet_manager::derive_account_keys(&decrypted_passphrase, account_index, &chain_type)
+        // Decrypt the recovery phrase and derive the account's public data.
+        // The phrase is zeroized when this block ends; private keys are never
+        // extracted or stored (they can always be re-derived from the phrase).
+        let account_data = {
+            let phrase = crypto::open(self.keys.seed.aead(), &wallet.encrypted_passphrase)
+                .map_err(anyhow::Error::from)
+                .and_then(RecoveryPhrase::from_utf8)
                 .map_err(|e| {
+                    warn!(wallet_id = wallet.id, error = %e, "Failed to decrypt wallet seed");
+                    AppError::InternalError(format!("Failed to decrypt wallet seed: {e}"))
+                })?;
+
+            wallet_manager::derive_account_keys(&phrase, account_index, &chain_type).map_err(
+                |e| {
                     warn!(
                         wallet_id = wallet.id,
                         account_index = account_index,
                         error = %e,
                         "Failed to derive account keys"
                     );
-                    AppError::InternalError(format!("Failed to derive account keys: {}", e))
-                })?;
-
-        // Encrypt the derived private key
-        let encrypted_private_key =
-            crypto::encrypt_secret(&account_data.private_key, &self.secret_key).map_err(|e| {
-                warn!(
-                    wallet_id = wallet.id,
-                    error = %e,
-                    "Failed to encrypt private key"
-                );
-                AppError::InternalError(format!("Failed to encrypt private key: {}", e))
-            })?;
+                    AppError::InternalError(format!("Failed to derive account keys: {e}"))
+                },
+            )?
+        };
 
         // Store account in database
         let account = self
@@ -413,7 +406,6 @@ impl WalletServices {
                 account_index,
                 &account_data.address,
                 &account_data.public_key,
-                &encrypted_private_key,
                 &chain_type,
             )
             .map_err(|e| {
@@ -440,6 +432,11 @@ impl WalletServices {
 
 #[cfg(test)]
 mod tests {
+
+    /// Deterministic key hierarchy for tests (fixed, non-secret master key).
+    fn test_keyring() -> crate::keys::Keyring {
+        crate::keys::Keyring::new(&crate::keys::MasterKey::from_bytes([0x42; 32]))
+    }
     use super::*;
     use crate::key_services::KeyServices;
     use crate::wallet::ChainType::{Bitcoin, Ethereum};
@@ -455,11 +452,11 @@ mod tests {
             .unwrap()
             .to_string();
 
-        let secret_key = "test_cipher_key".to_string();
+        let db_key = "test_cipher_key".to_string();
 
-        let db = Arc::new(Database::new(&db_path, &secret_key).expect("Failed to create database"));
+        let db = Arc::new(Database::new(&db_path, &db_key).expect("Failed to create database"));
 
-        let key_store = KeyServices::new(db.clone(), secret_key.clone());
+        let key_store = KeyServices::new(db.clone(), test_keyring().api_keys);
         let api_key = key_store
             .create("TestClient")
             .await
@@ -469,7 +466,7 @@ mod tests {
             .await
             .expect("Failed to get API key");
 
-        let services = WalletServices::new(db, secret_key);
+        let services = WalletServices::new(db, test_keyring().wallet);
         let req = CreateWalletRequest {
             wallet_name: "MyWallet".to_string(),
         };
@@ -490,11 +487,11 @@ mod tests {
             .unwrap()
             .to_string();
 
-        let secret_key = "test_cipher_key".to_string();
+        let db_key = "test_cipher_key".to_string();
 
-        let db = Arc::new(Database::new(&db_path, &secret_key).expect("Failed to create database"));
+        let db = Arc::new(Database::new(&db_path, &db_key).expect("Failed to create database"));
 
-        let key_store = KeyServices::new(db.clone(), secret_key.clone());
+        let key_store = KeyServices::new(db.clone(), test_keyring().api_keys);
         let api_key = key_store
             .create("TestClient")
             .await
@@ -504,7 +501,7 @@ mod tests {
             .await
             .expect("Failed to get API key");
 
-        let services = WalletServices::new(db, secret_key);
+        let services = WalletServices::new(db, test_keyring().wallet);
         let req = CreateWalletRequest {
             wallet_name: "".to_string(),
         };
@@ -522,11 +519,11 @@ mod tests {
             .unwrap()
             .to_string();
 
-        let secret_key = "test_cipher_key".to_string();
+        let db_key = "test_cipher_key".to_string();
 
-        let db = Arc::new(Database::new(&db_path, &secret_key).expect("Failed to create database"));
+        let db = Arc::new(Database::new(&db_path, &db_key).expect("Failed to create database"));
 
-        let key_store = KeyServices::new(db.clone(), secret_key.clone());
+        let key_store = KeyServices::new(db.clone(), test_keyring().api_keys);
         let api_key = key_store
             .create("TestClient")
             .await
@@ -536,7 +533,7 @@ mod tests {
             .await
             .expect("Failed to get API key");
 
-        let services = WalletServices::new(db, secret_key);
+        let services = WalletServices::new(db, test_keyring().wallet);
 
         let req1 = CreateWalletRequest {
             wallet_name: "MyWallet".to_string(),
@@ -565,11 +562,11 @@ mod tests {
             .unwrap()
             .to_string();
 
-        let secret_key = "test_cipher_key".to_string();
+        let db_key = "test_cipher_key".to_string();
 
-        let db = Arc::new(Database::new(&db_path, &secret_key).expect("Failed to create database"));
+        let db = Arc::new(Database::new(&db_path, &db_key).expect("Failed to create database"));
 
-        let key_store = KeyServices::new(db.clone(), secret_key.clone());
+        let key_store = KeyServices::new(db.clone(), test_keyring().api_keys);
         let api_key = key_store
             .create("TestClient")
             .await
@@ -579,7 +576,7 @@ mod tests {
             .await
             .expect("Failed to get API key");
 
-        let services = WalletServices::new(db, secret_key);
+        let services = WalletServices::new(db, test_keyring().wallet);
 
         // Create a wallet first
         let wallet_req = CreateWalletRequest {
@@ -609,11 +606,11 @@ mod tests {
             .unwrap()
             .to_string();
 
-        let secret_key = "test_cipher_key".to_string();
+        let db_key = "test_cipher_key".to_string();
 
-        let db = Arc::new(Database::new(&db_path, &secret_key).expect("Failed to create database"));
+        let db = Arc::new(Database::new(&db_path, &db_key).expect("Failed to create database"));
 
-        let key_store = KeyServices::new(db.clone(), secret_key.clone());
+        let key_store = KeyServices::new(db.clone(), test_keyring().api_keys);
         let api_key = key_store
             .create("TestClient")
             .await
@@ -623,7 +620,7 @@ mod tests {
             .await
             .expect("Failed to get API key");
 
-        let services = WalletServices::new(db, secret_key);
+        let services = WalletServices::new(db, test_keyring().wallet);
 
         // Create a wallet
         let wallet_req = CreateWalletRequest {
@@ -657,11 +654,11 @@ mod tests {
             .unwrap()
             .to_string();
 
-        let secret_key = "test_cipher_key".to_string();
+        let db_key = "test_cipher_key".to_string();
 
-        let db = Arc::new(Database::new(&db_path, &secret_key).expect("Failed to create database"));
+        let db = Arc::new(Database::new(&db_path, &db_key).expect("Failed to create database"));
 
-        let key_store = KeyServices::new(db.clone(), secret_key.clone());
+        let key_store = KeyServices::new(db.clone(), test_keyring().api_keys);
         let api_key = key_store
             .create("TestClient")
             .await
@@ -671,7 +668,7 @@ mod tests {
             .await
             .expect("Failed to get API key");
 
-        let services = WalletServices::new(db, secret_key);
+        let services = WalletServices::new(db, test_keyring().wallet);
 
         let result = services
             .create_or_get_account(&api_key, "MissingWallet".to_string(), 0, Bitcoin)
@@ -689,11 +686,11 @@ mod tests {
             .unwrap()
             .to_string();
 
-        let secret_key = "test_cipher_key".to_string();
+        let db_key = "test_cipher_key".to_string();
 
-        let db = Arc::new(Database::new(&db_path, &secret_key).expect("Failed to create database"));
+        let db = Arc::new(Database::new(&db_path, &db_key).expect("Failed to create database"));
 
-        let key_store = KeyServices::new(db.clone(), secret_key.clone());
+        let key_store = KeyServices::new(db.clone(), test_keyring().api_keys);
         let api_key = key_store
             .create("TestClient")
             .await
@@ -703,7 +700,7 @@ mod tests {
             .await
             .expect("Failed to get API key");
 
-        let services = WalletServices::new(db, secret_key);
+        let services = WalletServices::new(db, test_keyring().wallet);
 
         // Create a wallet
         let wallet_req = CreateWalletRequest {
@@ -731,11 +728,11 @@ mod tests {
             .unwrap()
             .to_string();
 
-        let secret_key = "test_cipher_key".to_string();
+        let db_key = "test_cipher_key".to_string();
 
-        let db = Arc::new(Database::new(&db_path, &secret_key).expect("Failed to create database"));
+        let db = Arc::new(Database::new(&db_path, &db_key).expect("Failed to create database"));
 
-        let key_store = KeyServices::new(db.clone(), secret_key.clone());
+        let key_store = KeyServices::new(db.clone(), test_keyring().api_keys);
         let api_key = key_store
             .create("TestClient")
             .await
@@ -745,7 +742,7 @@ mod tests {
             .await
             .expect("Failed to get API key");
 
-        let services = WalletServices::new(db, secret_key);
+        let services = WalletServices::new(db, test_keyring().wallet);
 
         // Create a wallet
         let wallet_req = CreateWalletRequest {
@@ -783,11 +780,11 @@ mod tests {
             .unwrap()
             .to_string();
 
-        let secret_key = "test_cipher_key".to_string();
+        let db_key = "test_cipher_key".to_string();
 
-        let db = Arc::new(Database::new(&db_path, &secret_key).expect("Failed to create database"));
+        let db = Arc::new(Database::new(&db_path, &db_key).expect("Failed to create database"));
 
-        let key_store = KeyServices::new(db.clone(), secret_key.clone());
+        let key_store = KeyServices::new(db.clone(), test_keyring().api_keys);
         let api_key = key_store
             .create("TestClient")
             .await
@@ -797,7 +794,7 @@ mod tests {
             .await
             .expect("Failed to get API key");
 
-        let services = WalletServices::new(db, secret_key);
+        let services = WalletServices::new(db, test_keyring().wallet);
 
         // Create a wallet
         let wallet_req = CreateWalletRequest {
@@ -839,11 +836,11 @@ mod tests {
             .unwrap()
             .to_string();
 
-        let secret_key = "test_cipher_key".to_string();
+        let db_key = "test_cipher_key".to_string();
 
-        let db = Arc::new(Database::new(&db_path, &secret_key).expect("Failed to create database"));
+        let db = Arc::new(Database::new(&db_path, &db_key).expect("Failed to create database"));
 
-        let key_store = KeyServices::new(db.clone(), secret_key.clone());
+        let key_store = KeyServices::new(db.clone(), test_keyring().api_keys);
         let api_key = key_store
             .create("TestClient")
             .await
@@ -853,7 +850,7 @@ mod tests {
             .await
             .expect("Failed to get API key");
 
-        let services = WalletServices::new(db, secret_key);
+        let services = WalletServices::new(db, test_keyring().wallet);
 
         // Try to get address for non-existent wallet
         let addr_req = GetBitcoinAddressRequest {
@@ -875,11 +872,11 @@ mod tests {
             .unwrap()
             .to_string();
 
-        let secret_key = "test_cipher_key".to_string();
+        let db_key = "test_cipher_key".to_string();
 
-        let db = Arc::new(Database::new(&db_path, &secret_key).expect("Failed to create database"));
+        let db = Arc::new(Database::new(&db_path, &db_key).expect("Failed to create database"));
 
-        let key_store = KeyServices::new(db.clone(), secret_key.clone());
+        let key_store = KeyServices::new(db.clone(), test_keyring().api_keys);
         let api_key = key_store
             .create("TestClient")
             .await
@@ -889,7 +886,7 @@ mod tests {
             .await
             .expect("Failed to get API key");
 
-        let services = WalletServices::new(db, secret_key);
+        let services = WalletServices::new(db, test_keyring().wallet);
 
         // Create a wallet
         let wallet_req = CreateWalletRequest {
@@ -925,11 +922,11 @@ mod tests {
             .unwrap()
             .to_string();
 
-        let secret_key = "test_cipher_key".to_string();
+        let db_key = "test_cipher_key".to_string();
 
-        let db = Arc::new(Database::new(&db_path, &secret_key).expect("Failed to create database"));
+        let db = Arc::new(Database::new(&db_path, &db_key).expect("Failed to create database"));
 
-        let key_store = KeyServices::new(db.clone(), secret_key.clone());
+        let key_store = KeyServices::new(db.clone(), test_keyring().api_keys);
         let api_key = key_store
             .create("TestClient")
             .await
@@ -939,7 +936,7 @@ mod tests {
             .await
             .expect("Failed to get API key");
 
-        let services = WalletServices::new(db, secret_key);
+        let services = WalletServices::new(db, test_keyring().wallet);
 
         // Create a wallet
         let wallet_req = CreateWalletRequest {
@@ -974,11 +971,11 @@ mod tests {
             .unwrap()
             .to_string();
 
-        let secret_key = "test_cipher_key".to_string();
+        let db_key = "test_cipher_key".to_string();
 
-        let db = Arc::new(Database::new(&db_path, &secret_key).expect("Failed to create database"));
+        let db = Arc::new(Database::new(&db_path, &db_key).expect("Failed to create database"));
 
-        let key_store = KeyServices::new(db.clone(), secret_key.clone());
+        let key_store = KeyServices::new(db.clone(), test_keyring().api_keys);
         let api_key = key_store
             .create("TestClient")
             .await
@@ -988,7 +985,7 @@ mod tests {
             .await
             .expect("Failed to get API key");
 
-        let services = WalletServices::new(db, secret_key);
+        let services = WalletServices::new(db, test_keyring().wallet);
 
         // Create a wallet
         let wallet_req = CreateWalletRequest {
@@ -1031,11 +1028,11 @@ mod tests {
             .unwrap()
             .to_string();
 
-        let secret_key = "test_cipher_key".to_string();
+        let db_key = "test_cipher_key".to_string();
 
-        let db = Arc::new(Database::new(&db_path, &secret_key).expect("Failed to create database"));
+        let db = Arc::new(Database::new(&db_path, &db_key).expect("Failed to create database"));
 
-        let key_store = KeyServices::new(db.clone(), secret_key.clone());
+        let key_store = KeyServices::new(db.clone(), test_keyring().api_keys);
         let api_key = key_store
             .create("TestClient")
             .await
@@ -1045,7 +1042,7 @@ mod tests {
             .await
             .expect("Failed to get API key");
 
-        let services = WalletServices::new(db, secret_key);
+        let services = WalletServices::new(db, test_keyring().wallet);
 
         // Try to get address for non-existent wallet
         let addr_req = GetEthereumAddressRequest {
@@ -1067,11 +1064,11 @@ mod tests {
             .unwrap()
             .to_string();
 
-        let secret_key = "test_cipher_key".to_string();
+        let db_key = "test_cipher_key".to_string();
 
-        let db = Arc::new(Database::new(&db_path, &secret_key).expect("Failed to create database"));
+        let db = Arc::new(Database::new(&db_path, &db_key).expect("Failed to create database"));
 
-        let key_store = KeyServices::new(db.clone(), secret_key.clone());
+        let key_store = KeyServices::new(db.clone(), test_keyring().api_keys);
         let api_key = key_store
             .create("TestClient")
             .await
@@ -1081,7 +1078,7 @@ mod tests {
             .await
             .expect("Failed to get API key");
 
-        let services = WalletServices::new(db, secret_key);
+        let services = WalletServices::new(db, test_keyring().wallet);
 
         // Create a wallet
         let wallet_req = CreateWalletRequest {
@@ -1120,11 +1117,11 @@ mod tests {
             .unwrap()
             .to_string();
 
-        let secret_key = "test_cipher_key".to_string();
+        let db_key = "test_cipher_key".to_string();
 
-        let db = Arc::new(Database::new(&db_path, &secret_key).expect("Failed to create database"));
+        let db = Arc::new(Database::new(&db_path, &db_key).expect("Failed to create database"));
 
-        let key_store = KeyServices::new(db.clone(), secret_key.clone());
+        let key_store = KeyServices::new(db.clone(), test_keyring().api_keys);
         let api_key = key_store
             .create("TestClient")
             .await
@@ -1134,7 +1131,7 @@ mod tests {
             .await
             .expect("Failed to get API key");
 
-        let services = WalletServices::new(db, secret_key);
+        let services = WalletServices::new(db, test_keyring().wallet);
 
         // Create a wallet
         let wallet_req = CreateWalletRequest {

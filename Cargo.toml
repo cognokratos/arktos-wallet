@@ -36,16 +36,21 @@ bip39 = "2"
 bip32 = "0.5"
 bitcoin = { version = "0.32", features = ["std"] }
 tiny-keccak = { version = "2", features = ["keccak"] }
-rand = "0.8"
 hex = "0.4"
-sha2 = "0.10"
+sha2 = "0.11"
 http = "1.4.0"
 base64 = "0.22.1"
-aes-gcm = "0.11.0-rc.2"
-aead = "0.6.0-rc.5"
 clap = { version = "4.5.54", features = ["derive"] }
-hmac = "0.12.1"
 utoipa = "5"
+
+# Cryptographic boundary (RustCrypto + OS RNG); see src/keys.rs and src/crypto.rs
+aes-gcm = { version = "0.11.1", default-features = false, features = ["aes", "alloc", "zeroize"] }
+hkdf = "0.13"
+hmac = "0.13"
+getrandom = "0.4"
+zeroize = "1.8"
+secrecy = "0.10"
+subtle = "2.6"
 utoipa-swagger-ui = { version = "9", features = ["axum"] }
 
 [dev-dependencies]

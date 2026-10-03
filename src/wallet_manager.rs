@@ -1,3 +1,12 @@
+//! BIP39 mnemonic generation and BIP32 account derivation.
+//!
+//! The mnemonic is held in [`RecoveryPhrase`], which zeroizes on drop and
+//! redacts `Debug`. Seeds are zeroized as soon as the extended key is built,
+//! and derived private keys never leave this module: only the public key and
+//! address are returned.
+//! Library-internal copies (e.g. inside `bip39::Mnemonic` or `bip32::XPrv`
+//! chain codes) are outside our control.
+
 use crate::wallet::ChainType;
 use anyhow::{Result, anyhow};
 use bip32::{DerivationPath, XPrv};
@@ -7,42 +16,79 @@ use bitcoin::{
     address::Address,
     secp256k1::{Secp256k1, XOnlyPublicKey},
 };
-use rand::RngCore;
+use std::fmt::{self, Write as _};
 use std::str::FromStr;
 use tiny_keccak::{Hasher, Keccak};
+use zeroize::{Zeroize, Zeroizing};
 
-/// Generate a BIP39 mnemonic (recovery passphrase) using 12 words
-pub fn generate_recovery_passphrase() -> Result<String> {
-    let mut entropy = [0u8; 16];
-    rand::thread_rng().fill_bytes(&mut entropy);
-    let mnemonic = Mnemonic::from_entropy(&entropy)?;
-    Ok(mnemonic.to_string())
+/// Longest 12-word English mnemonic: 12 × 8 letters + 11 spaces.
+const MAX_PHRASE_LEN: usize = 12 * 8 + 11;
+
+/// A BIP39 recovery phrase. Zeroized on drop, never printed.
+pub struct RecoveryPhrase(Zeroizing<String>);
+
+impl RecoveryPhrase {
+    /// Take ownership of a decrypted phrase without copying it.
+    pub fn from_utf8(bytes: Zeroizing<Vec<u8>>) -> Result<Self> {
+        let mut bytes = bytes;
+        match String::from_utf8(std::mem::take(&mut *bytes)) {
+            Ok(phrase) => Ok(Self(Zeroizing::new(phrase))),
+            Err(err) => {
+                err.into_bytes().zeroize();
+                Err(anyhow!("recovery phrase is not valid UTF-8"))
+            }
+        }
+    }
+
+    pub fn expose(&self) -> &str {
+        &self.0
+    }
 }
 
+impl fmt::Debug for RecoveryPhrase {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("RecoveryPhrase([REDACTED])")
+    }
+}
+
+/// Generate a 12-word BIP39 mnemonic from 128 bits of OS randomness.
+pub fn generate_recovery_passphrase() -> Result<RecoveryPhrase> {
+    let mut entropy = Zeroizing::new([0u8; 16]);
+    getrandom::fill(entropy.as_mut_slice())
+        .map_err(|_| anyhow!("OS random number generator failed"))?;
+    let mnemonic = Mnemonic::from_entropy(entropy.as_slice())
+        .map_err(|_| anyhow!("failed to build mnemonic from entropy"))?;
+    // Pre-sized so formatting never reallocates and leaves a stray copy.
+    let mut phrase = Zeroizing::new(String::with_capacity(MAX_PHRASE_LEN));
+    write!(phrase, "{mnemonic}").map_err(|_| anyhow!("failed to format mnemonic"))?;
+    Ok(RecoveryPhrase(phrase))
+}
+
+/// Public result of deriving one account. Contains no secret material.
+#[derive(Debug)]
 pub struct AccountData {
     pub derivation_path: String,
-    pub private_key: String,
+    /// Compressed SEC1 public key, `0x`-prefixed hex.
     pub public_key: String,
     pub address: String,
 }
 
-/// Derive an account's private/public keypair and address for a given chain.
+/// Derive an account's public key and address for a given chain.
 ///
-/// Returns AccountData containing:
-/// - `derivation_path` used for the account
-/// - `private_key` is the 66-byte secp256k1 secret key (raw bytes)
-/// - `public_key` is the compressed SEC1-encoded public key (raw bytes, 68 bytes)
-/// - `address` is the derived address for the account
+/// Paths: Bitcoin `m/86'/0'/0'/0/{index}` (Taproot, BIP86),
+/// Ethereum `m/44'/60'/0'/0/{index}`.
 pub fn derive_account_keys(
-    mnemonic: &str,
+    phrase: &RecoveryPhrase,
     account_index: u32,
     chain_type: &ChainType,
 ) -> Result<AccountData> {
-    let mnemonic =
-        Mnemonic::parse_normalized(mnemonic).map_err(|e| anyhow!("Invalid mnemonic: {}", e))?;
-
-    let seed = mnemonic.to_seed("");
-    let mut xprv = XPrv::new(seed)?;
+    let seed = {
+        let mnemonic =
+            Mnemonic::parse_normalized(phrase.expose()).map_err(|_| anyhow!("Invalid mnemonic"))?;
+        Zeroizing::new(mnemonic.to_seed(""))
+    };
+    let mut xprv = XPrv::new(seed.as_slice())?;
+    drop(seed);
 
     let derivation_path = match chain_type {
         ChainType::Bitcoin => format!("m/86'/0'/0'/0/{}", account_index),
@@ -58,21 +104,18 @@ pub fn derive_account_keys(
             .map_err(|e| anyhow!("Failed to derive child key: {}", e))?;
     }
 
-    let private_key = xprv.private_key().to_bytes().to_vec();
     let public_key = xprv.public_key().to_bytes().to_vec();
+    // The extended private key (and its secp256k1 scalar) is zeroized on drop.
+    drop(xprv);
 
     let address = match chain_type {
         ChainType::Bitcoin => derive_bitcoin_address(&public_key)?,
         ChainType::Ethereum => derive_ethereum_address(&public_key)?,
     };
 
-    let private_key = format!("0x{}", hex::encode(private_key));
-    let public_key = format!("0x{}", hex::encode(public_key));
-
     Ok(AccountData {
         derivation_path,
-        private_key,
-        public_key,
+        public_key: format!("0x{}", hex::encode(public_key)),
         address,
     })
 }
@@ -120,228 +163,111 @@ mod tests {
     use super::*;
     use crate::wallet::ChainType::{Bitcoin, Ethereum};
 
-    #[test]
-    fn test_generate_recovery_passphrase_returns_string() {
-        let result = generate_recovery_passphrase();
-        assert!(result.is_ok());
+    /// Public BIP39 test mnemonic (never use for real funds).
+    const TEST_MNEMONIC: &str = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+
+    fn phrase(words: &str) -> RecoveryPhrase {
+        RecoveryPhrase::from_utf8(Zeroizing::new(words.as_bytes().to_vec())).unwrap()
     }
 
+    // ---- Known derivation vectors (must never change) ----------------------
+
     #[test]
-    fn test_generate_recovery_passphrase_returns_12_words() {
-        let passphrase = generate_recovery_passphrase().expect("Should generate passphrase");
-        let words: Vec<&str> = passphrase.split_whitespace().collect();
+    fn bitcoin_bip86_test_vectors() {
+        // BIP86 reference vectors for the test mnemonic.
+        let a0 = derive_account_keys(&phrase(TEST_MNEMONIC), 0, &Bitcoin).unwrap();
+        assert_eq!(a0.derivation_path, "m/86'/0'/0'/0/0");
         assert_eq!(
-            words.len(),
-            12,
-            "Passphrase should contain exactly 12 words"
+            a0.address,
+            "bc1p5cyxnuxmeuwuvkwfem96lqzszd02n6xdcjrs20cac6yqjjwudpxqkedrcr"
+        );
+        assert_eq!(
+            a0.public_key,
+            "0x03cc8a4bc64d897bddc5fbc2f670f7a8ba0b386779106cf1223c6fc5d7cd6fc115"
+        );
+        let a1 = derive_account_keys(&phrase(TEST_MNEMONIC), 1, &Bitcoin).unwrap();
+        assert_eq!(
+            a1.address,
+            "bc1p4qhjn9zdvkux4e44uhx8tc55attvtyu358kutcqkudyccelu0was9fqzwh"
         );
     }
 
     #[test]
-    fn test_generate_recovery_passphrase_generates_unique_passphrases() {
-        let passphrase1 = generate_recovery_passphrase().expect("Should generate passphrase 1");
-        let passphrase2 = generate_recovery_passphrase().expect("Should generate passphrase 2");
-        assert_ne!(
-            passphrase1, passphrase2,
-            "Two calls should generate different passphrases"
+    fn ethereum_bip44_test_vectors() {
+        // Widely published m/44'/60'/0'/0/{0,1} addresses for the test mnemonic
+        // (lowercase; Arktos does not apply EIP-55 checksums).
+        let a0 = derive_account_keys(&phrase(TEST_MNEMONIC), 0, &Ethereum).unwrap();
+        assert_eq!(a0.derivation_path, "m/44'/60'/0'/0/0");
+        assert_eq!(a0.address, "0x9858effd232b4033e47d90003d41ec34ecaeda94");
+        assert_eq!(
+            a0.public_key,
+            "0x0237b0bb7a8288d38ed49a524b5dc98cff3eb5ca824c9f9dc0dfdb3d9cd600f299"
         );
+        let a1 = derive_account_keys(&phrase(TEST_MNEMONIC), 1, &Ethereum).unwrap();
+        assert_eq!(a1.address, "0x6fac4d18c912343bf86fa7049364dd4e424ab9c0");
+    }
+
+    // ---- Mnemonic generation ------------------------------------------------
+
+    #[test]
+    fn generated_phrase_is_valid_12_word_bip39() {
+        let generated = generate_recovery_passphrase().expect("generate");
+        assert_eq!(generated.expose().split_whitespace().count(), 12);
+        Mnemonic::parse_normalized(generated.expose()).expect("valid BIP39");
+        assert!(generated.0.capacity() >= generated.expose().len());
     }
 
     #[test]
-    fn test_generated_passphrase_is_valid_bip39() {
-        let passphrase = generate_recovery_passphrase().expect("Should generate passphrase");
-        let mnemonic = Mnemonic::parse_normalized(&passphrase);
+    fn generated_phrases_are_unique() {
+        let a = generate_recovery_passphrase().unwrap();
+        let b = generate_recovery_passphrase().unwrap();
+        assert_ne!(a.expose(), b.expose());
+    }
+
+    // ---- Derivation properties ---------------------------------------------
+
+    #[test]
+    fn different_indices_give_different_keys() {
+        let a = derive_account_keys(&phrase(TEST_MNEMONIC), 0, &Bitcoin).unwrap();
+        let b = derive_account_keys(&phrase(TEST_MNEMONIC), 1, &Bitcoin).unwrap();
+        assert_ne!(a.public_key, b.public_key);
+        assert_ne!(a.address, b.address);
+    }
+
+    #[test]
+    fn derivation_is_deterministic() {
+        for chain in [Bitcoin, Ethereum] {
+            let a = derive_account_keys(&phrase(TEST_MNEMONIC), 3, &chain).unwrap();
+            let b = derive_account_keys(&phrase(TEST_MNEMONIC), 3, &chain).unwrap();
+            assert_eq!(a.address, b.address);
+            assert_eq!(a.public_key, b.public_key);
+        }
+    }
+
+    #[test]
+    fn invalid_mnemonic_is_rejected_without_echoing_it() {
+        let err = derive_account_keys(&phrase("invalid mnemonic words"), 0, &Bitcoin).unwrap_err();
+        assert!(!err.to_string().contains("invalid mnemonic words"));
+    }
+
+    #[test]
+    fn invalid_utf8_phrase_is_rejected() {
+        assert!(RecoveryPhrase::from_utf8(Zeroizing::new(vec![0xff, 0xfe])).is_err());
+    }
+
+    // ---- Secret hygiene -----------------------------------------------------
+
+    #[test]
+    fn debug_output_redacts_secrets() {
+        let account = derive_account_keys(&phrase(TEST_MNEMONIC), 0, &Ethereum).unwrap();
+        let rendered = format!("{account:?} {:?}", phrase(TEST_MNEMONIC));
+        // Known private key of m/44'/60'/0'/0/0 must not be reachable anywhere.
         assert!(
-            mnemonic.is_ok(),
-            "Generated passphrase should be a valid BIP39 mnemonic"
+            !rendered.contains("1ab42cc412b618bdea3a599e3c9bae199ebf030895b039e9db1e30dafb12b727")
         );
-    }
-
-    #[test]
-    fn test_derive_account_keys_bitcoin() {
-        let mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
-        let account =
-            derive_account_keys(mnemonic, 0, &Bitcoin).expect("Should derive Bitcoin keys");
-
-        assert!(
-            !account.private_key.is_empty(),
-            "Private key should not be empty"
-        );
-        assert!(
-            !account.public_key.is_empty(),
-            "Public key should not be empty"
-        );
-        assert_eq!(
-            account.private_key.len(),
-            66,
-            "Private key should be 66 bytes"
-        );
-        assert_eq!(
-            account.public_key.len(),
-            68,
-            "Public key should be 68 bytes (compressed)"
-        );
-        assert!(
-            account.address.starts_with("bc1"),
-            "Bitcoin address should start with bc1"
-        );
-        assert_eq!(
-            account.derivation_path, "m/86'/0'/0'/0/0",
-            "Derivation path should match Bitcoin standard"
-        );
-    }
-
-    #[test]
-    fn test_derive_account_keys_ethereum() {
-        let mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
-        let account =
-            derive_account_keys(mnemonic, 0, &Ethereum).expect("Should derive Ethereum keys");
-
-        assert!(
-            !account.private_key.is_empty(),
-            "Private key should not be empty"
-        );
-        assert!(
-            !account.public_key.is_empty(),
-            "Public key should not be empty"
-        );
-        assert_eq!(
-            account.private_key.len(),
-            66,
-            "Private key should be 66 bytes"
-        );
-        assert_eq!(
-            account.public_key.len(),
-            68,
-            "Public key should be 68 bytes (compressed)"
-        );
-        assert!(
-            account.address.starts_with("0x"),
-            "Ethereum address should start with 0x"
-        );
-        assert_eq!(
-            account.address.len(),
-            42,
-            "Ethereum address should be 42 characters (0x + 40 hex)"
-        );
-        assert_eq!(
-            account.derivation_path, "m/44'/60'/0'/0/0",
-            "Derivation path should match Ethereum standard"
-        );
-    }
-
-    #[test]
-    fn test_derive_account_keys_different_indices() {
-        let mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
-        let account_1 =
-            derive_account_keys(mnemonic, 0, &Bitcoin).expect("Should derive first account");
-        let account_2 =
-            derive_account_keys(mnemonic, 1, &Bitcoin).expect("Should derive second account");
-
-        assert_ne!(
-            account_1.private_key, account_2.private_key,
-            "Different indices should produce different private keys"
-        );
-        assert_ne!(
-            account_1.public_key, account_2.public_key,
-            "Different indices should produce different public keys"
-        );
-        assert_ne!(
-            account_1.address, account_2.address,
-            "Different indices should produce different addresses"
-        );
-    }
-
-    #[test]
-    fn test_derive_account_keys_invalid_mnemonic() {
-        let result = derive_account_keys("invalid mnemonic words", 0, &Bitcoin);
-        assert!(result.is_err(), "Should reject invalid mnemonic");
-    }
-
-    #[test]
-    fn test_derive_bitcoin_address_from_valid_public_key() {
-        let mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
-        let account =
-            derive_account_keys(mnemonic, 0, &Bitcoin).expect("Should derive Bitcoin keys");
-
-        // Bitcoin address should start with bc1 for Taproot (mainnet)
-        assert!(
-            account.address.starts_with("bc1"),
-            "Bitcoin address should start with bc1"
-        );
-        assert!(
-            !account.address.is_empty(),
-            "Bitcoin address should not be empty"
-        );
-    }
-
-    #[test]
-    fn test_derive_bitcoin_address_consistent() {
-        let mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
-        let account_1 =
-            derive_account_keys(mnemonic, 0, &Bitcoin).expect("Should derive Bitcoin keys");
-        let account_2 =
-            derive_account_keys(mnemonic, 0, &Bitcoin).expect("Should derive Bitcoin keys");
-
-        assert_eq!(
-            account_1.address, account_2.address,
-            "Same public key should produce same address"
-        );
-    }
-
-    #[test]
-    fn test_derive_bitcoin_address_different_keys_produce_different_addresses() {
-        let mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
-        let account_1 = derive_account_keys(mnemonic, 0, &Bitcoin).expect("Should derive key 1");
-        let account_2 = derive_account_keys(mnemonic, 1, &Bitcoin).expect("Should derive key 2");
-
-        assert_ne!(
-            account_1.address, account_2.address,
-            "Different public keys should produce different addresses"
-        );
-    }
-
-    #[test]
-    fn test_derive_ethereum_address_from_valid_public_key() {
-        let mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
-        let account =
-            derive_account_keys(mnemonic, 0, &Ethereum).expect("Should derive Ethereum keys");
-
-        // Ethereum address should start with 0x and be 42 chars long (0x + 40 hex chars)
-        assert!(
-            account.address.starts_with("0x"),
-            "Ethereum address should start with 0x"
-        );
-        assert_eq!(
-            account.address.len(),
-            42,
-            "Ethereum address should be 42 characters (0x + 40 hex)"
-        );
-    }
-
-    #[test]
-    fn test_derive_ethereum_address_consistent() {
-        let mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
-        let account_1 =
-            derive_account_keys(mnemonic, 0, &Ethereum).expect("Should derive Ethereum keys");
-        let account_2 =
-            derive_account_keys(mnemonic, 0, &Ethereum).expect("Should derive Ethereum keys");
-
-        assert_eq!(
-            account_1.address, account_2.address,
-            "Same public key should produce same Ethereum address"
-        );
-    }
-
-    #[test]
-    fn test_derive_ethereum_address_different_keys_produce_different_addresses() {
-        let mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
-        let account_1 = derive_account_keys(mnemonic, 0, &Ethereum).expect("Should derive key 1");
-        let account_2 = derive_account_keys(mnemonic, 1, &Ethereum).expect("Should derive key 2");
-
-        assert_ne!(
-            account_1.address, account_2.address,
-            "Different public keys should produce different Ethereum addresses"
-        );
+        assert!(!rendered.contains("abandon"));
+        assert!(rendered.contains("REDACTED"));
+        // Public data stays visible for diagnostics.
+        assert!(rendered.contains(&account.address));
     }
 }

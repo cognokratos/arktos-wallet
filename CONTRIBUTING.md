@@ -19,7 +19,8 @@ Thanks for your interest in contributing! For security issues, follow
    Optionally install [hadolint](https://github.com/hadolint/hadolint) and
    Docker for the Dockerfile checks.
 4. Copy `.env.example` to `.env` and fill in the secrets to run the server
-   (`make dev`).
+   (`make dev`). Generate `MASTER_KEY` and `DATABASE_KEY` separately
+   with `make secret`.
 
 Run `make help` to list all targets.
 

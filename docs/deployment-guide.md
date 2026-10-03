@@ -37,11 +37,21 @@ docker run -p 8080:8080 arktos-wallet
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `ADMIN_API_KEY` | yes | Key for the `/admin/*` API |
-| `SECRET_KEY` | yes | Server secret used for API-key hashing and wallet secret encryption |
-| `DATABASE_KEY` | yes | SQLCipher database key |
+| `MASTER_KEY` | yes | 32 random bytes, base64 (`make secret`). Root of the HKDF key hierarchy: API-key HMAC and wallet-seed encryption keys. Losing it makes wallets unrecoverable. |
+| `DATABASE_KEY` | yes | SQLCipher database key. Generate independently of `MASTER_KEY` (`make secret`); must not be equal to it. |
 | `DATABASE_PATH` | no | Database file (default `data/arktos.db`; use a writable volume in containers) |
 | `MCP_ALLOWED_HOSTS` | no | Comma-separated `Host` values accepted on `/mcp` (default `localhost,127.0.0.1,::1`). Set it to the hostname(s) clients use, e.g. `wallet.example.com`; other hosts get `403` (DNS-rebinding protection). |
 | `RUST_LOG` | no | Log filter, e.g. `info` |
+
+## Generating Secrets
+
+```sh
+make secret   # prints 32 random bytes from the OS RNG, base64-encoded
+```
+
+Run it once for `MASTER_KEY` and once for `DATABASE_KEY`. Store both in
+your secret manager; back up `MASTER_KEY` together with the database,
+since wallet recovery phrases cannot be decrypted without it.
 
 ## MCP and Scaling
 

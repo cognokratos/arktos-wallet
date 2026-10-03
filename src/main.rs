@@ -2,7 +2,9 @@ use arktos_wallet::app::router;
 use arktos_wallet::auth::AppState;
 use arktos_wallet::config::Config;
 use arktos_wallet::key_services::KeyServices;
+use arktos_wallet::keys::Keyring;
 use arktos_wallet::{database::Database, wallet_services::WalletServices};
+use secrecy::ExposeSecret;
 use std::{net::SocketAddr, sync::Arc};
 use tokio_util::sync::CancellationToken;
 use tracing_subscriber::EnvFilter;
@@ -13,16 +15,20 @@ async fn main() -> anyhow::Result<()> {
         .with_env_filter(EnvFilter::from_default_env())
         .init();
 
-    // Initialize database with SQLCipher encryption
-    let config = Config::from_env();
-    let secret_key = config.secret_key;
+    let config = Config::from_env()?;
 
-    let db = Arc::new(Database::new(&config.db_path, &config.db_key)?);
-    let wallet_services = Arc::new(WalletServices::new(db.clone(), secret_key.clone()));
-    let key_services = Arc::new(KeyServices::new(db.clone(), secret_key));
+    // SQLCipher uses DATABASE_KEY; field encryption and API-key hashing use
+    // subkeys derived from MASTER_KEY.
+    let db = Arc::new(Database::new(
+        &config.db_path,
+        config.db_key.expose_secret(),
+    )?);
+    let keyring = Keyring::new(&config.master_key);
+    let wallet_services = Arc::new(WalletServices::new(db.clone(), keyring.wallet));
+    let key_services = Arc::new(KeyServices::new(db.clone(), keyring.api_keys));
     let app_state = AppState {
         key_services,
-        admin_api_key: config.admin_key,
+        admin_api_key: Arc::new(config.admin_key),
     };
 
     // Cancelled on shutdown so in-flight MCP streaming responses terminate.

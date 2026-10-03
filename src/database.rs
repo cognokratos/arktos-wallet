@@ -11,8 +11,9 @@ impl Database {
     pub fn new(db_path: &str, cipher_key: &str) -> Result<Self> {
         let conn = Connection::open(db_path).context("Failed to open database connection")?;
 
-        // Enable SQLCipher encryption with AES-256
-        conn.execute_batch(&format!("PRAGMA key = '{}';", cipher_key))
+        // Enable SQLCipher encryption. `pragma_update` quotes the value, so
+        // keys containing quotes work and no SQL is assembled from the secret.
+        conn.pragma_update(None, "key", cipher_key)
             .context("Failed to set encryption key")?;
 
         // Verify encryption is enabled
@@ -53,7 +54,6 @@ impl Database {
                 account_index INTEGER NOT NULL,
                 address TEXT NOT NULL,
                 public_key TEXT NOT NULL,
-                encrypted_private_key TEXT NOT NULL,
                 chain_type TEXT NOT NULL,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (wallet_id) REFERENCES wallets(id),
@@ -199,19 +199,11 @@ mod tests {
             .expect("Failed to create wallet");
 
         let account = wallet_store
-            .create_account(
-                wallet.id,
-                0,
-                "address_xyz",
-                "public_key_abc",
-                "encrypted_key_123",
-                &Bitcoin,
-            )
+            .create_account(wallet.id, 0, "address_xyz", "public_key_abc", &Bitcoin)
             .expect("Failed to create account");
 
         assert_eq!(account.wallet_id, wallet.id);
         assert_eq!(account.account_index, 0);
-        assert_eq!(account.encrypted_private_key, "encrypted_key_123");
         assert_eq!(account.public_key, "public_key_abc");
         assert_eq!(account.chain_type, Bitcoin);
     }
@@ -243,7 +235,7 @@ mod tests {
             .expect("Failed to create wallet");
 
         wallet_store
-            .create_account(wallet.id, 0, "addr1", "pub_key1", "priv_key1", &Bitcoin)
+            .create_account(wallet.id, 0, "addr1", "pub_key1", &Bitcoin)
             .expect("Failed to create account");
 
         let retrieved = wallet_store

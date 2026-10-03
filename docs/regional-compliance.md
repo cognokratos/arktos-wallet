@@ -8,7 +8,7 @@ Arktos's core design decisions support compliance requirements:
 
 | Requirement | Arktos Support | Evidence |
 |------------|----------------|----------|
-| **Data Encryption at Rest** | ✅ AES-256 via SQLCipher | All sensitive data encrypted by default |
+| **Data Encryption at Rest** | ✅ SQLCipher + AES-256-GCM field encryption | Database file encrypted; recovery phrases additionally encrypted under HKDF-derived keys |
 | **Audit Logging** | ✅ Comprehensive logging | Every wallet operation logged with timestamp, actor, action |
 | **Access Control** | ✅ API key authentication + ownership model | Role-based access via MCP tokens |
 | **Data Minimization** | ✅ Stateless design | No unnecessary data retention in memory |
@@ -152,7 +152,7 @@ pub async fn export_wallet_data(
 
 #### 1.4 Privacy by Design Checklist
 
-- [x] Data encrypted at rest (SQLCipher AES-256)
+- [x] Data encrypted at rest (SQLCipher database encryption + AES-256-GCM field encryption of secrets)
 - [x] Minimal data collection
 - [x] No tracking or profiling
 - [x] Secure deletion implemented
@@ -547,29 +547,26 @@ impl ComplianceAdapter for PDPOAdapter {
 ### Arktos Key Management Architecture
 
 ```
-┌─────────────────────────────────────────────┐
-│ System Owner (Outside Arktos)               │
-│ - Generates and manages master key         │
-│ - Controls key storage (HSM/Vault)         │
-│ - Performs key rotation                    │
-└─────────────────┬───────────────────────────┘
-                  │
-                  ▼
-┌─────────────────────────────────────────────┐
-│ Arktos Wallet Service                       │
-│ - Receives encrypted data                   │
-│ - Uses temporary session keys               │
-│ - Never stores master key                   │
-│ - Performs encryption/decryption operations│
-└─────────────────┬───────────────────────────┘
-                  │
-                  ▼
-┌─────────────────────────────────────────────┐
-│ Encrypted Database (SQLCipher)              │
-│ - All data at rest encrypted with AES-256  │
-│ - Encryption key managed by system owner   │
-└─────────────────────────────────────────────┘
+System owner (environment / secret manager)
+ ├── DATABASE_KEY ─────────► SQLCipher: whole database file
+ └── MASTER_KEY ────► HKDF-SHA256
+                               ├── API-key HMAC key
+                               └── wallet-seed encryption key (AES-256-GCM)
+
+Arktos process
+ - holds keys in memory only (zeroized on drop; not written to the database)
+ - encrypts/decrypts wallet secrets in versioned envelopes
+
+Database (SQLCipher file)
+ - field-level ciphertext for recovery phrases (no private keys stored)
+ - HMAC hashes of API keys
 ```
+
+The two root secrets must be generated independently (`make secret`). Arktos
+does not yet integrate with an HSM or KMS, and key rotation is not implemented;
+the rotation procedure below is a pattern for system owners to build on. See
+[Architecture — Key Hierarchy & Secret Storage](./architecture.md#key-hierarchy--secret-storage)
+for the exact scheme.
 
 ### Implementation: Key Rotation
 

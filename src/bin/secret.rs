@@ -1,10 +1,21 @@
-use anyhow::{Context, Result, anyhow};
-use arktos_wallet::api_key::ApiKey;
-use arktos_wallet::crypto::{decrypt_secret, encrypt_secret};
+//! Developer/operator tool for Arktos key material.
+//!
+//! Keys are read from environment variables only (never from command-line
+//! arguments, which end up in shell history and process listings).
+
+use anyhow::{Context, Result};
+use arktos_wallet::config::MASTER_KEY_VAR;
+use arktos_wallet::crypto;
+use arktos_wallet::keys::{Keyring, MasterKey, generate_master_key_base64};
 use clap::{Parser, Subcommand};
+use zeroize::Zeroizing;
 
 #[derive(Parser, Debug)]
-#[command(name = "secret", version, about = "Decrypt secrets (AES-256-GCM)")]
+#[command(
+    name = "secret",
+    version,
+    about = "Arktos key and encrypted-secret tool"
+)]
 struct Cli {
     #[command(subcommand)]
     cmd: Command,
@@ -12,113 +23,89 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Command {
-    /// Encrypt plaintext and print DB-safe base64 string
+    /// Print a new random 32-byte key, base64-encoded (for MASTER_KEY or DATABASE_KEY)
+    GenerateKey,
+    /// Encrypt a recovery phrase from stdin (or --plaintext) into a v1 envelope
     Encrypt {
-        /// Master key string (prefer passing via --key-env)
-        #[arg(long)]
-        key: Option<String>,
-
-        /// Read master key from this environment variable (recommended)
-        #[arg(long)]
-        key_env: Option<String>,
-
+        /// Environment variable holding the master key
+        #[arg(long, default_value = MASTER_KEY_VAR)]
+        key_env: String,
         /// Plaintext (if omitted, reads from stdin)
         #[arg(long)]
         plaintext: Option<String>,
     },
-    /// Decrypt DB base64 string and print plaintext
+    /// Decrypt a stored `wallets.encrypted_passphrase` envelope and print it
     Decrypt {
-        /// Master key string (prefer passing via --key-env)
-        #[arg(long)]
-        key: Option<String>,
-
-        /// Read master key from this environment variable (recommended)
-        #[arg(long)]
-        key_env: Option<String>,
-
-        /// Base64 ciphertext (if omitted, reads from stdin)
+        /// Environment variable holding the master key
+        #[arg(long, default_value = MASTER_KEY_VAR)]
+        key_env: String,
+        /// Stored value (if omitted, reads from stdin)
         #[arg(long)]
         ciphertext: Option<String>,
     },
-    /// Hash api key using SHA256 and print hex string
+    /// Print the stored HMAC of an API key
     Hash {
-        /// Master key string (prefer passing via --key-env)
-        #[arg(long)]
-        key: Option<String>,
-
-        /// Read master key from this environment variable (recommended)
-        #[arg(long)]
-        key_env: Option<String>,
-
-        /// API key to hash
+        /// Environment variable holding the master key
+        #[arg(long, default_value = MASTER_KEY_VAR)]
+        key_env: String,
+        /// API key to hash (if omitted, reads from stdin)
         #[arg(long)]
         api_key: Option<String>,
     },
 }
 
 fn main() -> Result<()> {
-    let cli = Cli::parse();
-
-    match cli.cmd {
-        Command::Encrypt {
-            key,
-            key_env,
-            plaintext,
-        } => {
-            let key = resolve_key(key, key_env)?;
-            let plaintext = match plaintext {
-                Some(p) => p,
-                None => read_all_stdin_trimmed().context("failed to read plaintext from stdin")?,
-            };
-            let enc = encrypt_secret(&plaintext, &key)?;
-            println!("{enc}");
+    match Cli::parse().cmd {
+        Command::GenerateKey => {
+            println!(
+                "{}",
+                generate_master_key_base64().context("OS random number generator failed")?
+            );
+        }
+        Command::Encrypt { key_env, plaintext } => {
+            let keyring = Keyring::new(&master_key(&key_env)?);
+            let plaintext = Zeroizing::new(input(plaintext, "plaintext")?);
+            println!(
+                "{}",
+                crypto::seal(keyring.wallet.seed.aead(), plaintext.as_bytes())?
+            );
         }
         Command::Decrypt {
-            key,
             key_env,
             ciphertext,
         } => {
-            let key = resolve_key(key, key_env)?;
-            let ciphertext = match ciphertext {
-                Some(c) => c,
-                None => read_all_stdin_trimmed().context("failed to read ciphertext from stdin")?,
-            };
-            let pt = decrypt_secret(&ciphertext, &key)?;
-            println!("{pt}");
+            let keyring = Keyring::new(&master_key(&key_env)?);
+            let stored = input(ciphertext, "ciphertext")?;
+            let plaintext = crypto::open(keyring.wallet.seed.aead(), &stored)?;
+            println!("{}", String::from_utf8_lossy(&plaintext));
         }
-        Command::Hash {
-            key,
-            key_env,
-            api_key,
-        } => {
-            let key = resolve_key(key, key_env)?;
-            let api_key = match api_key {
-                Some(a) => a,
-                None => read_all_stdin_trimmed().context("failed to read api key from stdin")?,
-            };
-            let hash = ApiKey::hash(&api_key, &key);
-            println!("{hash}");
+        Command::Hash { key_env, api_key } => {
+            let keyring = Keyring::new(&master_key(&key_env)?);
+            println!(
+                "{}",
+                keyring.api_keys.hmac.hash(&input(api_key, "api key")?)
+            );
         }
     }
-
     Ok(())
 }
 
-fn read_all_stdin_trimmed() -> Result<String> {
-    use std::io::Read;
-    let mut s = String::new();
-    std::io::stdin().read_to_string(&mut s)?;
-    Ok(s.trim().to_string())
+fn master_key(env_name: &str) -> Result<MasterKey> {
+    let value =
+        Zeroizing::new(std::env::var(env_name).with_context(|| format!("{env_name} is not set"))?);
+    MasterKey::from_base64(&value).with_context(|| format!("{env_name} is invalid"))
 }
 
-fn resolve_key(key: Option<String>, key_env: Option<String>) -> Result<String> {
-    if let Some(k) = key {
-        return Ok(k);
+fn input(value: Option<String>, what: &str) -> Result<String> {
+    match value {
+        Some(v) => Ok(v),
+        None => {
+            use std::io::Read;
+            let mut s = String::new();
+            std::io::stdin()
+                .read_to_string(&mut s)
+                .with_context(|| format!("failed to read {what} from stdin"))?;
+            Ok(s.trim().to_string())
+        }
     }
-    if let Some(env_name) = key_env {
-        let v =
-            std::env::var(&env_name).with_context(|| format!("env var {env_name} is not set"))?;
-        return Ok(v);
-    }
-    Err(anyhow!("provide --key or --key-env"))
 }
