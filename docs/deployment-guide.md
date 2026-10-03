@@ -8,37 +8,15 @@ The project utilizes a multi-stage Docker build process to create efficient and 
 
 ### Docker Strategy
 
-1.  **Dependency Installation & Caching (Builder Stage)**: Leverages `lukemathwalker/cargo-chef` to cache Rust dependencies. This significantly speeds up subsequent builds by only rebuilding changed dependencies.
-2.  **Isolated Build (Builder Stage)**: The application is built within a dedicated builder stage.
-3.  **Lean Runtime (Final Stage)**: The final image uses `gcr.io/distroless/static-debian13:nonroot` as a base. This provides a minimal, secure runtime environment with only the necessary components, reducing the attack surface and image size.
+The [`Dockerfile`](../Dockerfile) has three stages:
 
-### Example Dockerfile (Conceptual)
+1.  **Planner**: Uses [`cargo-chef`](https://github.com/LukeMathWalker/cargo-chef) to compute a dependency recipe.
+2.  **Builder**: Cooks (pre-builds) dependencies as a cached layer, then builds the `arktos-wallet` binary with `--locked`. The `rust:<version>` base image matches the toolchain pinned in `rust-toolchain.toml`.
+3.  **Runtime**: Copies the binary into `gcr.io/distroless/cc-debian13:nonroot` and runs it as the non-root user (UID 65532), exposing port 8080.
 
-A `Dockerfile` based on the provided strategy would look something like this:
+The image has no shell and defines no Docker `HEALTHCHECK`; configure your orchestrator to probe `GET /healthz`.
 
-```dockerfile
-# Stage 1: Dependency Caching with cargo-chef
-FROM lukemathwalker/cargo-chef:latest-rust-1.74.0 AS chef
-WORKDIR /app
-COPY . .
-RUN cargo chef prepare --workspace
-
-# Stage 2: Build the application
-FROM chef AS builder
-COPY . .
-RUN cargo chef build --release --workspace
-
-# Stage 3: Final lean runtime image
-FROM gcr.io/distroless/static-debian12:nonroot
-WORKDIR /app
-COPY --from=builder /app/target/release/arktos-wallet .
-# Optionally copy other assets if needed, e.g., configuration files
-# COPY config/ /app/config/
-EXPOSE 8080 # Example port, adjust as necessary
-CMD ["./arktos-wallet"]
-```
-
-**Note:** This is a conceptual `Dockerfile`. Actual implementation might require adjustments for specific project layout, port exposure, and additional runtime dependencies if any.
+CI builds the image and lints the Dockerfile with hadolint on every push and pull request (`make docker-build` / `make docker-lint` locally).
 
 ## Running with Docker
 

@@ -2,6 +2,8 @@
 name = "arktos-wallet"
 version = "0.1.0"
 edition = "2024"
+# No license has been chosen yet (see README); never publish to crates.io by accident.
+publish = false
 
 [dependencies]
 tokio = { version = "1", features = ["full"] }

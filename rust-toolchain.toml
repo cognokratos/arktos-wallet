@@ -1,0 +1,7 @@
+# Pinned Rust toolchain shared by local development, CI and the Docker build.
+# Bump deliberately (Dependabot proposes updates) and keep the `rust:<version>`
+# base image in the Dockerfile in sync.
+[toolchain]
+channel = "1.97.1"
+components = ["rustfmt", "clippy"]
+profile = "minimal"

@@ -4,10 +4,10 @@ This guide provides instructions for setting up the development environment, bui
 
 ## Prerequisites
 
-- **Rust**: A recent version of the Rust toolchain is required. Install from [rust-lang.org](https://www.rust-lang.org/). The project is configured for the 2024 edition of Rust.
-- **Cargo**: The Rust package manager (installed with Rust)
-- **SQLite 3.x**: Required by SQLCipher for database operations
-- **Make** (optional): For convenient command shortcuts via `Makefile`
+- **Rust**: Install [rustup](https://rustup.rs/). The exact toolchain (currently Rust 1.97.1, 2024 edition, with `rustfmt` and `clippy`) is pinned in [`rust-toolchain.toml`](../rust-toolchain.toml) and installed automatically by the first `cargo` command. CI and the Docker build use the same version.
+- **C toolchain, `make` and `perl`**: SQLCipher and OpenSSL are compiled from source by `rusqlite` (`bundled-sqlcipher-vendored-openssl`), so no system SQLite is required.
+- **Check tools** (for `make ci`): `cargo install --locked cargo-nextest cargo-audit cargo-deny`
+- **Optional**: Docker and [hadolint](https://github.com/hadolint/hadolint) for `make docker-build` / `make docker-lint`; `sqlcipher` for `make sql`
 
 ## Installation
 
@@ -23,7 +23,7 @@ cd arktos-wallet
 
 2. Verify Rust installation:
 ```bash
-rustc --version  # Should show Rust 1.75+
+rustc --version  # Picks up the version pinned in rust-toolchain.toml
 cargo --version
 ```
 
@@ -81,10 +81,11 @@ Use release builds for performance testing and production deployment.
 To run the project's full test suite:
 
 ```sh
-make test
-# or
-cargo test
+make test      # cargo test --all-features
+make nextest   # cargo-nextest + doctests, as run in CI
 ```
+
+Tests do not require Docker or network access. Docker image builds and Dockerfile linting run in CI (`make docker-build` / `make docker-lint` locally).
 
 ### Test Modes
 
@@ -117,19 +118,17 @@ mod tests {
 
 ### Formatting & Linting
 
-Format all code according to Rust conventions & Check for code quality issues:
-
 ```shell
-make format
+make fmt        # cargo fmt --all
+make fmt-check  # cargo fmt --all --check
+make check      # cargo check --all-targets --all-features
+make lint       # cargo clippy --all-targets --all-features -- -D warnings
 ```
 
-This runs `fmt` + `check` + `clippy` on the entire codebase.
-Or manually:
+Before opening a pull request, run everything CI runs (except the Docker jobs):
 
 ```shell
-cargo fmt
-cargo check
-cargo clippy
+make ci
 ```
 
 Fix some issues automatically:
@@ -138,19 +137,11 @@ Fix some issues automatically:
 make fix
 ```
 
-or manually:
-
-```bash
-cargo clippy --fix --allow-dirty
-cargo fix --allow-dirty
-```
-
 ### Security Auditing
 
-Check dependencies for known vulnerabilities:
-
 ```bash
-cargo audit
+make audit  # cargo audit: known vulnerabilities (config: .cargo/audit.toml)
+make deny   # cargo deny check: advisories, licenses, bans, sources (config: deny.toml)
 ```
 
 ## Database Operations
@@ -222,14 +213,14 @@ If implementing compliance features:
 
 5. **Refactor** while keeping tests green
 
-6. **Format and lint**:
-   ```bash 
-   make format
+6. **Format**:
+   ```bash
+   make fmt
    ```
 
-7. **Test the entire suite**:
+7. **Run all checks**:
    ```bash
-   make test
+   make ci
    ```
 
 ### Debugging
@@ -250,13 +241,14 @@ RUST_LOG=arktos_wallet::wallet=trace cargo run
 | `cargo build` | Build debug binary |
 | `cargo build --release` | Build optimized binary |
 | `cargo run` | Build and run |
-| `cargo test` | Run all tests |
-| `cargo fmt` | Format code |
-| `cargo clippy` | Lint code |
-| `cargo audit` | Check for vulnerabilities |
 | `cargo doc --open` | Generate and open documentation |
 | `make dev` | Run development server with debug logs |
-| `make format` | Format code (shortcut) |
+| `make test` / `make nextest` | Run all tests |
+| `make fmt` / `make fmt-check` | Format code / check formatting |
+| `make lint` | Clippy with warnings denied |
+| `make audit` / `make deny` | Dependency security and license checks |
+| `make ci` | All local CI checks |
+| `make help` | List all targets |
 
 ## Troubleshooting
 

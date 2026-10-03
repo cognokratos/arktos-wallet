@@ -18,9 +18,9 @@ Arktos Wallet is a production-ready reference implementation that showcases best
 ## 🚀 Quick Start
 
 ### Prerequisites
-- Rust 2024 edition
+- [rustup](https://rustup.rs/) — the Rust toolchain (currently 1.97.1, 2024 edition) is pinned in [`rust-toolchain.toml`](./rust-toolchain.toml) and installed automatically
+- A C toolchain, `make` and `perl` (SQLCipher and OpenSSL are built from source; no system SQLite needed)
 - Docker (for containerized deployment)
-- SQLite 3.x
 
 ### Development Setup
 ```bash
@@ -30,6 +30,8 @@ cargo build
 cargo test
 cargo run
 ```
+
+Run `make ci` for the full set of local checks (formatting, Clippy, tests, `cargo audit`, `cargo deny`). See [CONTRIBUTING.md](./CONTRIBUTING.md) for the required tools.
 
 For detailed development instructions, see [Development Guide](./docs/development-guide.md).
 
@@ -111,7 +113,7 @@ For security details, see [Architecture](./docs/architecture.md#security-archite
 
 | Component | Technology | Version | Purpose |
 |-----------|-----------|---------|---------|
-| Language | Rust | 2024 edition | Type-safe, high-performance backend |
+| Language | Rust | 1.97 (2024 edition) | Type-safe, high-performance backend |
 | Web Framework | Axum | 0.8+ | Async HTTP server |
 | Async Runtime | Tokio | 1.x | Non-blocking I/O |
 | Database | SQLite + SQLCipher | 3.x | Encrypted local persistence |
@@ -123,13 +125,14 @@ For security details, see [Architecture](./docs/architecture.md#security-archite
 
 Arktos Wallet is an open-source educational project. Contributions, forks, and adaptations are encouraged!
 
-- **For enhancements**: Open issues and pull requests
+- **For enhancements**: Open issues and pull requests — see [CONTRIBUTING.md](./CONTRIBUTING.md)
+- **For security issues**: Report privately as described in [SECURITY.md](./SECURITY.md); do not open public issues
 - **For custom implementations**: This repository serves as a reference—fork and adapt it to your specific needs
 - **For compliance work**: See [Regional Compliance Guide](./docs/regional-compliance.md) for patterns and considerations
 
 ## 📝 License
 
-[Specify your license here]
+> **TODO (repository owner):** No license has been chosen yet. Until a `LICENSE` file is added, no license is granted and default copyright applies. A license must be selected before any release. The crate is marked `publish = false` in the meantime.
 
 ## 🆘 Support & Community
 

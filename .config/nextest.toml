@@ -1,0 +1,7 @@
+# cargo-nextest configuration: https://nexte.st/docs/configuration/
+# CI selects the `ci` profile via NEXTEST_PROFILE=ci.
+
+[profile.ci]
+# Report every failing test instead of stopping at the first one.
+fail-fast = false
+failure-output = "immediate-final"

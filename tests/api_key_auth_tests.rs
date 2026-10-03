@@ -40,7 +40,7 @@ async fn test_validate_api_key_valid() {
 
     let api_key = result.unwrap();
     assert_eq!(api_key.name, client_name);
-    assert_eq!(api_key.is_revoked, false);
+    assert!(!api_key.is_revoked);
 }
 
 #[tokio::test]
