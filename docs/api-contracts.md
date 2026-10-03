@@ -21,11 +21,64 @@ A simple health check endpoint to verify server liveness.
 
 ### 2. MCP Entrypoint
 
-The primary endpoint for all Model Context Protocol (MCP) communication.
+The single endpoint for all Model Context Protocol (MCP) communication.
 
 *   **URL:** `/mcp`
-*   **Method:** (Handled by MCP transport)
-*   **Description:** This is the entrypoint for the Streamable HTTP transport of the MCP server. All MCP tool calls and server interactions are handled through this service.
+*   **Method:** `POST` (`GET`/`DELETE` return `405`: there are no sessions or standalone streams)
+*   **Protocol:** [MCP `2026-07-28`](https://modelcontextprotocol.io/specification/2026-07-28), stateless Streamable HTTP transport, implemented with the official `rmcp` 3.x SDK.
+*   **Authentication:** `X-API-KEY: <client API key>` (issued via `/admin/api-keys`). Wallets are scoped to this key.
+*   **Description:** Every request is self-contained. Clients call `server/discover` instead of `initialize`, and send `MCP-Protocol-Version: 2026-07-28`, the SEP-2243 `Mcp-Method` (and `Mcp-Name` for `tools/call`) headers and per-request `_meta` on each request. No `Mcp-Session-Id` is issued or required. Request and response formats are defined by the MCP specification; use an MCP client rather than hand-written requests.
+*   **Responses:**
+    *   **`200 OK`**: JSON-RPC response as `application/json` (or `text/event-stream` if the server streams intermediate messages). Protocol and tool errors are JSON-RPC errors; an unsupported protocol version yields error `-32022`.
+    *   **`400 Bad Request`**: Malformed MCP request or inconsistent MCP headers.
+    *   **`401 Unauthorized`**: Missing, invalid or revoked API key.
+    *   **`403 Forbidden`**: `Host` header not in `MCP_ALLOWED_HOSTS` (DNS-rebinding protection).
+
+Example discovery request (headers: `Mcp-Method: server/discover`, `MCP-Protocol-Version: 2026-07-28`, `X-API-KEY`):
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "server/discover",
+  "params": {
+    "_meta": {
+      "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+      "io.modelcontextprotocol/clientInfo": { "name": "example-client", "version": "1.0.0" },
+      "io.modelcontextprotocol/clientCapabilities": {}
+    }
+  }
+}
+```
+
+Response:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "resultType": "complete",
+    "supportedVersions": ["2026-07-28"],
+    "capabilities": { "tools": {} },
+    "instructions": "This is the MCP server for Arktos Wallet. Use an MCP-compatible client to interact with it.",
+    "ttlMs": 0,
+    "cacheScope": "private",
+    "_meta": {
+      "io.modelcontextprotocol/serverInfo": {
+        "name": "arktos_wallet",
+        "title": "Arktos Wallet",
+        "version": "0.1.0",
+        "websiteUrl": "https://github.com/cognokratos/arktos-wallet"
+      }
+    }
+  }
+}
+```
+
+### 3. Admin API
+
+REST endpoints for API-key administration (not MCP), authenticated with the admin key in `X-API-KEY`: `GET`/`POST /admin/api-keys`, `POST /admin/api-keys/{id}/revoke`, `POST /admin/api-keys/{id}/rotate`. See `/swagger-ui` for schemas.
 
 ## MCP Tools
 
@@ -79,7 +132,7 @@ Retrieves the Ethereum public address for an existing wallet.
 A simple tool to check the liveness and responsiveness of the MCP tool router.
 
 *   **Tool Name:** `ping`
-*   **Description:** Returns a simple "pong" esponse.
+*   **Description:** Returns a simple "pong" response.
 *   **Arguments:** (empty)
 *   **Returns:**
     *   A string containing "pong".

@@ -1,7 +1,3 @@
 # cargo-audit configuration. Keep the ignore list in sync with deny.toml.
 [advisories]
-ignore = [
-    # rmcp < 1.4.0: DNS rebinding in the Streamable HTTP server transport.
-    # Fixing it requires the rmcp 1.x migration planned for Stage 2.
-    "RUSTSEC-2026-0189",
-]
+ignore = []

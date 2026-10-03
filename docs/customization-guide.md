@@ -18,7 +18,7 @@ The Arktos architecture is modular and extensible. Key areas for customization i
 Before customizing, understand the core architecture:
 
 - **Monolithic Service**: Single Rust binary (Axum-based HTTP server)
-- **Stateless Design**: No in-memory state between requests (facilitates horizontal scaling)
+- **Stateless MCP Protocol**: MCP `2026-07-28` requests are self-contained (no MCP sessions); wallet data is persisted in SQLCipher (single instance)
 - **MCP-Centric API**: Core wallet logic exposed via Model Context Protocol (MCP) tools
 - **Encrypted Persistence**: All sensitive data encrypted at rest using SQLCipher
 - **Modular Code Organization**: Rust modules allow clean separation of concerns

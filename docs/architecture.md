@@ -31,7 +31,7 @@ This architecture is intentionally **simple and modular**, making it suitable fo
 | Language          | Rust                  | 2024 edition | Type-safe, memory-safe backend with zero-cost abstractions |
 | Framework         | Axum                  | 0.8+         | Modular, composable web framework for building APIs |
 | Async Runtime     | Tokio                 | 1.x          | Production-grade async runtime for high-performance I/O |
-| MCP SDK           | rmcp (MCP Rust SDK)   | 0.12+        | Protocol implementation for AI agent integration |
+| MCP SDK           | rmcp (official MCP Rust SDK) | 3.x   | MCP `2026-07-28` server, stateless Streamable HTTP transport |
 | Database          | SQLite + SQLCipher    | 3.x          | Lightweight, encrypted local persistence |
 | Serialization     | Serde, Serde JSON     | 1.x          | Efficient, zero-copy serialization |
 | Schema Generation | Schemars              | 1.x          | JSON schema generation for API documentation |
@@ -41,7 +41,7 @@ This architecture is intentionally **simple and modular**, making it suitable fo
 ## 3. Architecture Pattern
 
 Arktos follows a **layered API-centric architecture** optimized for:
-- **Stateless operation** (enables horizontal scaling)
+- **Stateless MCP protocol layer** (no MCP sessions; any request can be served independently)
 - **Security-first design** (encryption at rest/in transit)
 - **MCP-native integration** (AI agent workflows)
 - **Extensibility** (modular design supports customization)
@@ -88,7 +88,7 @@ Arktos follows a **layered API-centric architecture** optimized for:
 
 ### Key Architectural Principles
 
-1. **Stateless Design**: No session state kept between requests, enabling horizontal scaling
+1. **Stateless Protocol Layer**: No MCP session or transport state is kept between requests; persistent application state (wallets, accounts, API keys) lives in the database
 2. **Security by Default**: All sensitive data encrypted at rest; TLS required in transit
 3. **Non-Custodial Model**: System owner maintains complete control of encryption keys
 4. **Single Responsibility**: Each module handles one concern (wallet management, auth, data access)
@@ -136,11 +136,40 @@ The server exposes a minimal, intentionally-constrained HTTP interface to maximi
 | Endpoint | Method | Purpose | Authentication |
 |----------|--------|---------|-----------------|
 | `/healthz` | GET | Health check / liveness probe | None |
-| `/mcp` | POST | Model Context Protocol endpoint | API Key |
+| `/mcp` | POST | Model Context Protocol endpoint (MCP `2026-07-28`) | API Key (`X-API-KEY`) |
+| `/admin/api-keys`, `/admin/api-keys/{id}/revoke`, `/admin/api-keys/{id}/rotate` | GET/POST | API key administration (REST, not MCP) | Admin API Key |
+| `/swagger-ui`, `/openapi.json` | GET | API documentation | None |
+
+### MCP Transport
+
+| Aspect | Value |
+|--------|-------|
+| MCP specification | [`2026-07-28`](https://modelcontextprotocol.io/specification/2026-07-28) (the only supported version) |
+| SDK | [`rmcp`](https://github.com/modelcontextprotocol/rust-sdk) 3.x (official Rust SDK) |
+| Transport | Streamable HTTP, stateless (`NeverSessionManager`, `legacy_session_mode = false`) |
+| Discovery | `server/discover` (no `initialize` handshake, no `Mcp-Session-Id`) |
+| Responses | `application/json`; `text/event-stream` only when a handler streams intermediate messages |
+
+Each `POST /mcp` carries everything needed to serve it: the `MCP-Protocol-Version`
+and SEP-2243 `Mcp-Method`/`Mcp-Name` headers, per-request `_meta` (protocol
+version, client info, client capabilities) and the `X-API-KEY` header. Arktos
+builds a fresh `McpServer` for every request, so any instance can serve any
+request and no sticky sessions are needed.
+
+Requests negotiating an older protocol revision (including legacy `initialize`)
+are rejected with JSON-RPC error `-32022` (*Unsupported protocol version*).
+Arktos deliberately does not keep a legacy session layer for old clients.
+
+Tool definitions are generated at compile time from `#[tool]` attributes, so
+`tools/list` is identical across requests; the SDK attaches the MCP cache hints
+(`ttlMs`, `cacheScope`).
 
 ### MCP Tools (Core API)
 
 Wallet functionality is exposed exclusively via MCP tools:
+
+0. **`ping`**
+   - Liveness check of the MCP tool router; returns `pong`
 
 1. **`create_wallet`**
    - Creates new non-custodial wallet
@@ -162,7 +191,7 @@ Wallet functionality is exposed exclusively via MCP tools:
 - **MCP-Centric**: All wallet operations via MCP ensures structured, typed interactions
 - **API Key Auth**: Simple, stateless authentication suitable for service-to-service communication
 - **No Sensitive Data in Responses**: Public addresses only; private keys never transmitted
-- **Minimal HTTP Surface**: Only two HTTP endpoints reduces attack surface
+- **Minimal HTTP Surface**: One MCP endpoint plus health, admin and documentation routes
 
 For complete API specification, see [API Contracts](./api-contracts.md).
 
@@ -171,33 +200,44 @@ For complete API specification, see [API Contracts](./api-contracts.md).
 ### Authentication & Authorization
 
 ```
-MCP Request Flow:
+MCP Request Flow (every request is independent):
 ┌──────────────────┐
 │ AI Agent/Client  │
 └────────┬─────────┘
-         │
-         ▼ (API Key in Authorization header)
+         │ POST /mcp  (X-API-KEY, MCP-Protocol-Version: 2026-07-28)
+         ▼
 ┌────────────────────────────────────────┐
-│ API Key Validation Middleware          │
-│ - Verify key exists in database        │
-│ - Verify key not revoked               │
+│ API Key Middleware (Axum)              │
+│ - Verify key exists and is not revoked │
+│ - Attach ApiKey to request extensions  │
+│ - 401 otherwise                        │
 └────────┬───────────────────────────────┘
          │
          ▼
 ┌────────────────────────────────────────┐
-│ Authorization Check                    │
-│ - Verify ownership of requested wallet │
-│ - Enforce principle of least privilege │
+│ rmcp Streamable HTTP (stateless)       │
+│ - Host allowlist (DNS rebinding) → 403 │
+│ - Protocol version / header / _meta    │
+│   validation → JSON-RPC errors         │
+│ - Forwards HTTP Parts (incl. ApiKey)   │
 └────────┬───────────────────────────────┘
          │
          ▼
 ┌────────────────────────────────────────┐
-│ Execute MCP Tool                       │
-│ - Log operation for audit trail        │
-│ - Perform business logic               │
+│ McpServer tool router                  │
+│ - Reads ApiKey from request Parts      │
+│ - Logs tool name + API key id          │
+└────────┬───────────────────────────────┘
+         │
+         ▼
+┌────────────────────────────────────────┐
+│ WalletServices                         │
+│ - Wallets scoped to the API key        │
 │ - Return only public data              │
 └────────────────────────────────────────┘
 ```
+
+The API key never appears in tool parameters and is not visible to the model.
 
 ### Data Protection
 
@@ -212,7 +252,7 @@ MCP Request Flow:
 - Input validation on all API parameters
 - Secure error handling (no sensitive data in error messages)
 - SQL injection prevention via parameterized queries
-- CSRF protection via MCP token validation
+- DNS-rebinding protection: `/mcp` only accepts allowlisted `Host` headers (`MCP_ALLOWED_HOSTS`, loopback by default)
 - Vulnerability scanning via `cargo audit`
 - Code quality via `cargo clippy` and formatting via `cargo fmt`
 
@@ -222,38 +262,29 @@ MCP Request Flow:
 
 - **Wallet Creation**: < 500ms (p95) - cryptographic key generation
 - **Address Retrieval**: < 100ms (p95) - deterministic derivation
-- **Concurrency**: 100+ req/s with horizontal scaling
+- **Concurrency**: 100+ req/s (target)
 - **Database Capacity**: 10,000 wallets, 50,000+ accounts per instance
 - **Uptime Target**: 99.9% (production deployment with monitoring)
 
 ### Scalability Pattern
 
-Arktos is designed as a **stateless microservice**:
+Two layers must be distinguished:
+
+| Layer | State | Scaling |
+|-------|-------|---------|
+| MCP protocol layer | Stateless (MCP `2026-07-28`, no sessions) | Any request can be routed to any instance; no sticky sessions |
+| Persistence | Local SQLCipher (SQLite) file | **Single instance** |
 
 ```
-                    ┌──────────────────┐
-                    │  Load Balancer   │
-                    └────────┬─────────┘
-                             │
-        ┌────────────────────┼────────────────────┐
-        ▼                    ▼                    ▼
-    ┌────────┐          ┌────────┐          ┌────────┐
-    │Arktos 1│          │Arktos 2│  ...     │Arktos N│
-    └────┬───┘          └────┬───┘          └────┬───┘
-         │                   │                   │
-         └───────────────────┼───────────────────┘
-                             │
-                       ┌─────▼──────┐
-                       │   SQLite   │
-                       │ (Encrypted)│
-                       └────────────┘
+MCP clients ──► Arktos (single instance) ──► SQLCipher file (local volume)
+                 stateless MCP requests       persistent wallets / API keys
 ```
 
-Each instance:
-- Has no local state
-- Uses shared encrypted database
-- Can be scaled horizontally
-- Can be replaced without data loss
+The stateless transport removes protocol-level obstacles to horizontal scaling,
+but the current persistence layer does not support it: a SQLite file must not
+be shared between containers or hosts, so run **one** Arktos instance per
+database. Multi-instance deployments require a different persistence backend,
+which is planned as a later stage.
 
 ## 8. Customization & Extension Points
 

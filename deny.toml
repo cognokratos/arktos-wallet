@@ -9,10 +9,8 @@ all-features = true
 # direct dependencies; unsound/yanked crates fail as well.
 unmaintained = "workspace"
 yanked = "deny"
-ignore = [
-    # Keep in sync with .cargo/audit.toml.
-    { id = "RUSTSEC-2026-0189", reason = "rmcp 0.12 DNS rebinding; fixed by the rmcp >= 1.4 migration planned for Stage 2. /mcp is still behind API-key auth." },
-]
+# Keep in sync with .cargo/audit.toml.
+ignore = []
 
 [licenses]
 # Permissive licenses used by the current dependency tree.
@@ -36,7 +34,7 @@ private = { ignore = true }
 
 [bans]
 # Duplicate versions are reported for visibility but do not fail the build;
-# several are pulled in transitively (e.g. rand 0.8 vs 0.9 via rmcp).
+# several are pulled in transitively (e.g. rand 0.8 vs 0.10 via rmcp).
 multiple-versions = "warn"
 wildcards = "deny"
 highlight = "all"

@@ -85,7 +85,16 @@ make test      # cargo test --all-features
 make nextest   # cargo-nextest + doctests, as run in CI
 ```
 
-Tests do not require Docker or network access. Docker image builds and Dockerfile linting run in CI (`make docker-build` / `make docker-lint` locally).
+Tests do not require Docker or network access.
+
+`tests/mcp_protocol_tests.rs` starts the real router on an ephemeral port and
+exercises `/mcp` with the official `rmcp` client (MCP `2026-07-28`, discover
+lifecycle): discovery, `tools/list`, all tools, API-key authentication,
+statelessness and per-key wallet isolation. Run it alone with:
+
+```sh
+cargo test --test mcp_protocol_tests
+``` Docker image builds and Dockerfile linting run in CI (`make docker-build` / `make docker-lint` locally).
 
 ### Test Modes
 

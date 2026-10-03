@@ -10,7 +10,8 @@ Arktos Wallet is a production-ready reference implementation that showcases best
 
 - **Secure Wallet Management**: Non-custodial wallet creation with BIP39/BIP32 cryptographic standards
 - **Multi-Account Support**: Manage multiple blockchain accounts under a single system owner
-- **API Key Authentication**: Secure MCP (Model Context Protocol) server with API key-based authentication
+- **Modern MCP**: Stateless [MCP `2026-07-28`](https://modelcontextprotocol.io/specification/2026-07-28) server built on the official `rmcp` 3.x SDK
+- **API Key Authentication**: MCP access protected by per-client API keys; wallets are scoped to the key
 - **Data Encryption**: AES-256 encryption at rest using SQLCipher for sensitive wallet data
 - **Docker Deployment**: Multi-stage Docker builds for lean, production-ready containerization
 - **Extensibility**: Designed as a customizable foundation for builders and system owners
@@ -35,6 +36,10 @@ Run `make ci` for the full set of local checks (formatting, Clippy, tests, `carg
 
 For detailed development instructions, see [Development Guide](./docs/development-guide.md).
 
+### Connecting an MCP client
+
+Point a client that supports MCP `2026-07-28` at `http://localhost:8080/mcp` and send a client API key (created via `POST /admin/api-keys`) in the `X-API-KEY` header. Arktos only speaks `2026-07-28`: there is no `initialize` handshake or session, and clients discover the server with `server/discover`. See [API Contracts](./docs/api-contracts.md#2-mcp-entrypoint).
+
 ### Docker Deployment
 ```bash
 docker build -t arktos-wallet:latest .
@@ -49,10 +54,10 @@ For deployment details, see [Deployment Guide](./docs/deployment-guide.md).
 - ✅ Bitcoin & Ethereum address derivation
 - ✅ Multi-account management per wallet
 - ✅ Encrypted SQLite database with SQLCipher
-- ✅ HTTP MCP endpoint with API key authentication
+- ✅ Stateless MCP `2026-07-28` HTTP endpoint (`server/discover`, no sessions) with API key authentication
 - ✅ Health check endpoint (`/healthz`)
 - ✅ Comprehensive audit logging
-- ✅ Stateless microservice architecture for horizontal scaling
+- ✅ Stateless MCP protocol layer (persistent wallet data in a local, single-instance SQLCipher database)
 
 ## 📚 Documentation
 
@@ -105,7 +110,7 @@ For security details, see [Architecture](./docs/architecture.md#security-archite
 
 - **Wallet Creation**: < 500ms (p95)
 - **Address Retrieval**: < 100ms (p95)
-- **Concurrency**: 100+ req/s with horizontal scaling
+- **Concurrency**: 100+ req/s (target, single instance)
 - **Database Capacity**: 10,000 wallets, 50,000+ accounts
 - **Uptime Target**: 99.9% (production deployment)
 
@@ -117,7 +122,7 @@ For security details, see [Architecture](./docs/architecture.md#security-archite
 | Web Framework | Axum | 0.8+ | Async HTTP server |
 | Async Runtime | Tokio | 1.x | Non-blocking I/O |
 | Database | SQLite + SQLCipher | 3.x | Encrypted local persistence |
-| Protocol | MCP (Model Context Protocol) | rmcp 0.12+ | AI agent integration |
+| Protocol | MCP (Model Context Protocol) | spec `2026-07-28`, rmcp 3.x | AI agent integration (stateless HTTP) |
 | Cryptography | secp256k1, bip39, bip32 | Latest | Blockchain standards |
 | Serialization | Serde | 1.x | Data encoding (JSON, binary) |
 

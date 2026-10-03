@@ -22,7 +22,7 @@ This document is the master index for all documentation related to the Arktos Wa
 ### 🔌 API & Integration
 
 - **[API Contracts](./api-contracts.md)** - HTTP endpoints, MCP tools specification, request/response formats, and error codes
-- **[MCP Tools]** - `create_wallet`, `get_bitcoin_address`, `get_ethereum_address` exposed via `/mcp` endpoint
+- **[MCP Tools]** - `ping`, `create_wallet`, `get_bitcoin_address`, `get_ethereum_address` exposed via the stateless MCP `2026-07-28` `/mcp` endpoint
 - **[Health Check]** - `/healthz` endpoint for system monitoring
 
 ### 📚 Development & Deployment
@@ -115,12 +115,13 @@ This document is the master index for all documentation related to the Arktos Wa
 | Framework | Axum 0.8+ | HTTP server |
 | Runtime | Tokio 1.x | Async I/O |
 | Database | SQLite + SQLCipher | Encrypted persistence |
-| Protocol | MCP (rmcp 0.12+) | AI agent integration |
+| Protocol | MCP `2026-07-28` (rmcp 3.x, stateless HTTP) | AI agent integration |
 | Crypto | secp256k1, bip39, bip32 | Blockchain standards |
 | Serialization | Serde 1.x | JSON/binary encoding |
 
 ### Core MCP Tools
 
+- `ping` - Liveness check of the MCP tool router
 - `create_wallet` - Create new non-custodial wallet with recovery passphrase
 - `get_bitcoin_address` - Derive and retrieve Bitcoin address for wallet
 - `get_ethereum_address` - Derive and retrieve Ethereum address for wallet
@@ -128,7 +129,8 @@ This document is the master index for all documentation related to the Arktos Wa
 ### Endpoints
 
 - `GET /healthz` - Health check
-- `POST /mcp` - Model Context Protocol endpoint (authentication required)
+- `POST /mcp` - MCP `2026-07-28` endpoint, stateless (client API key required)
+- `/admin/api-keys` - API key administration (admin API key required)
 
 ---
 

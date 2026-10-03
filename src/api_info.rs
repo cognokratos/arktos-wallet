@@ -1,3 +1,9 @@
+//! OpenAPI/Swagger UI configuration for the Arktos Wallet API.
+//!
+//! The REST endpoints (`/healthz`, `/admin/*`) are documented from their
+//! handlers. `/mcp` is described only at the HTTP level: its payloads are
+//! defined by the MCP specification, not mirrored here.
+
 use crate::auth::{CreateApiKeyRequest, ListApiKeysResponse, NewApiKeyResponse};
 use crate::wallet_services::{
     BitcoinAddressResponse, CreateWalletRequest, CreateWalletResponse, EthereumAddressResponse,
@@ -5,49 +11,16 @@ use crate::wallet_services::{
 };
 use axum::response::IntoResponse;
 use http::StatusCode;
-use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use utoipa::openapi::example::ExampleBuilder;
 use utoipa::openapi::path::{OperationBuilder, ParameterBuilder, ParameterIn};
 use utoipa::openapi::request_body::RequestBodyBuilder;
 use utoipa::openapi::{
-    Components, ContentBuilder, HttpMethod, ObjectBuilder, Ref, RefOr, Required, Response,
-    ResponseBuilder, ResponsesBuilder, Schema,
+    ContentBuilder, HttpMethod, ObjectBuilder, Required, Response, ResponseBuilder,
+    ResponsesBuilder, Type,
 };
-/// OpenAPI/Swagger UI configuration for the Arktos Wallet API.
-///
-/// This module provides OpenAPI specification generation and Swagger UI serving
-/// using the `utoipa` library. The generated API documentation automatically
-/// reflects all API endpoints and their schemas.
-use utoipa::{Modify, OpenApi, ToSchema, openapi};
+use utoipa::{Modify, OpenApi, openapi};
 use utoipa_swagger_ui::SwaggerUi;
-
-// -------------------------
-// Schemas for MCP endpoint
-// -------------------------
-
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct McpRequest {
-    /// JSON-RPC version (example: "2.0")
-    pub jsonrpc: String,
-    /// Method name (example: "tools/list")
-    pub method: String,
-    /// Free-form parameters
-    pub params: serde_json::Value,
-    /// Optional request id
-    pub id: Option<serde_json::Value>,
-}
-
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct McpResponse {
-    /// JSON-RPC version (example: "2.0")
-    pub jsonrpc: String,
-    /// Result payload (if successful)
-    pub result: Option<serde_json::Value>,
-    /// Error payload (if failed)
-    pub error: Option<serde_json::Value>,
-    /// Mirrors the request id when present
-    pub id: Option<serde_json::Value>,
-}
 
 // -------------------------
 // Real axum health endpoint
@@ -66,137 +39,175 @@ pub async fn health() -> impl IntoResponse {
 }
 
 // ---------------------------------------------
-// Manual OpenAPI path injection for MCP endpoint
+// Lightweight OpenAPI description of /mcp
 // ---------------------------------------------
+
+const MCP_DESCRIPTION: &str = "\
+Model Context Protocol endpoint implementing \
+[MCP 2026-07-28](https://modelcontextprotocol.io/specification/2026-07-28) over the \
+stateless Streamable HTTP transport. Use an MCP client rather than hand-written requests: \
+message formats, required headers and per-request `_meta` are defined by the MCP \
+specification, not by this document.
+
+* Every request is self-contained: there is no `initialize` handshake and no \
+`Mcp-Session-Id`. Clients discover the server with `server/discover`.
+* Only protocol version `2026-07-28` is supported; other versions are rejected with \
+JSON-RPC error `-32022`.
+* Arktos requires a valid client API key in `X-API-KEY`; wallets are scoped to that key.
+* Tools: `ping`, `create_wallet`, `get_bitcoin_address`, `get_ethereum_address`.";
+
+const CLIENT_META: &str = r#"{
+  "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+  "io.modelcontextprotocol/clientInfo": { "name": "example-client", "version": "1.0.0" },
+  "io.modelcontextprotocol/clientCapabilities": {}
+}"#;
+
+fn header(name: &str, description: &str, example: &str) -> openapi::path::Parameter {
+    ParameterBuilder::new()
+        .name(name)
+        .description(Some(description))
+        .required(Required::True)
+        .parameter_in(ParameterIn::Header)
+        .example(Some(Value::from(example)))
+        .build()
+}
+
+fn example(summary: &str, value: Value) -> openapi::example::Example {
+    ExampleBuilder::new()
+        .summary(summary)
+        .value(Some(value))
+        .build()
+}
 
 struct McpPath;
 
 impl Modify for McpPath {
     fn modify(&self, openapi: &mut openapi::OpenApi) {
-        let mcp_request_example: Value = json!({
-            "method": "initialize",
-            "params": {
-                "protocolVersion": "2025-11-25",
-                "capabilities": {
-                    "sampling": {},
-                    "elicitation": {},
-                    "roots": {
-                        "listChanged": true
-                    }
-                },
-                "clientInfo": {
-                    "name": "inspector-client",
-                    "version": "0.18.0"
-                }
-            },
-            "jsonrpc": "2.0",
-            "id": 0
-        });
+        let meta: Value = serde_json::from_str(CLIENT_META).expect("valid example metadata");
 
-        let mcp_response_example: Value = json!({
-            "data": {
-                "jsonrpc": "2.0",
-                "id": 0,
-                "result": {
-                    "protocolVersion": "2025-03-26",
-                    "capabilities": {
-                        "tools": {}
-                    },
-                    "serverInfo": {
-            "name": "arktos_wallet",
-            "title": "Arktos Wallet MCP Server",
-            "version": "0.1.0",
-            "websiteUrl": "https://github.com/cognokratos/arktos-wallet"
-        },
-        "instructions": "This is the MCP server for Arktos Wallet. Use an MCP-compatible client to interact with it."
-                }
-            }
-        });
-
-        // Ensure the components section exists
-        if openapi.components.is_none() {
-            openapi.components = Some(Components::new());
-        }
-
-        // Add MCP schemas to components if not present already
-        // (We also include them via #[openapi(components(...))], but this keeps it robust.)
-        {
-            let components = openapi.components.as_mut().unwrap();
-
-            components
-                .schemas
-                .entry("McpRequest".to_string())
-                .or_insert_with(|| {
-                    RefOr::T(Schema::Object(
-                        ObjectBuilder::new()
-                            .description(Some("MCP request (JSON-RPC-like)"))
-                            .build(),
-                    ))
-                });
-
-            components
-                .schemas
-                .entry("McpResponse".to_string())
-                .or_insert_with(|| {
-                    RefOr::T(Schema::Object(
-                        ObjectBuilder::new()
-                            .description(Some("MCP response (JSON-RPC-like)"))
-                            .build(),
-                    ))
-                });
-        }
-
-        let params = ParameterBuilder::new()
-            .description(Some("Client API key"))
-            .name("X-API-KEY")
-            .required(Required::True)
-            .parameter_in(ParameterIn::Header)
-            .build();
-
-        // Request body: application/json referencing McpRequest schema
         let request_body = RequestBodyBuilder::new()
-            .description(Some("MCP request payload"))
+            .description(Some("A single MCP JSON-RPC message (see the MCP specification)."))
             .required(Some(Required::True))
             .content(
                 "application/json",
                 ContentBuilder::new()
-                    .schema(Some(Ref::from_schema_name("McpRequest")))
-                    .example(Some(mcp_request_example))
+                    .schema(Some(ObjectBuilder::new().schema_type(Type::Object)))
+                    .examples_from_iter([
+                        (
+                            "server/discover",
+                            example(
+                                "Discover server capabilities (headers: Mcp-Method: server/discover)",
+                                json!({
+                                    "jsonrpc": "2.0",
+                                    "id": 1,
+                                    "method": "server/discover",
+                                    "params": { "_meta": meta }
+                                }),
+                            ),
+                        ),
+                        (
+                            "tools/call ping",
+                            example(
+                                "Call the ping tool (headers: Mcp-Method: tools/call, Mcp-Name: ping)",
+                                json!({
+                                    "jsonrpc": "2.0",
+                                    "id": 2,
+                                    "method": "tools/call",
+                                    "params": { "name": "ping", "arguments": {}, "_meta": meta }
+                                }),
+                            ),
+                        ),
+                    ])
                     .build(),
             )
             .build();
 
-        // Responses: 200 application/json referencing McpResponse schema
         let responses = ResponsesBuilder::new()
             .response(
                 "200",
                 ResponseBuilder::new()
-                    .description("MCP response (JSON or Streaming)")
+                    .description(
+                        "MCP response: `application/json`, or `text/event-stream` when the \
+                         server streams intermediate messages.",
+                    )
                     .content(
-                        "application/json, text/event-stream",
+                        "application/json",
                         ContentBuilder::new()
-                            .schema(Some(Ref::from_schema_name("McpResponse")))
-                            .example(Some(mcp_response_example))
+                            .schema(Some(ObjectBuilder::new().schema_type(Type::Object)))
+                            .examples_from_iter([
+                                (
+                                    "server/discover",
+                                    example(
+                                        "Discovery result",
+                                        json!({
+                                            "jsonrpc": "2.0",
+                                            "id": 1,
+                                            "result": {
+                                                "resultType": "complete",
+                                                "supportedVersions": ["2026-07-28"],
+                                                "capabilities": { "tools": {} },
+                                                "instructions": "This is the MCP server for Arktos Wallet. Use an MCP-compatible client to interact with it.",
+                                                "ttlMs": 0,
+                                                "cacheScope": "private",
+                                                "_meta": {
+                                                    "io.modelcontextprotocol/serverInfo": {
+                                                        "name": "arktos_wallet",
+                                                        "title": "Arktos Wallet",
+                                                        "version": env!("CARGO_PKG_VERSION"),
+                                                        "websiteUrl": "https://github.com/cognokratos/arktos-wallet"
+                                                    }
+                                                }
+                                            }
+                                        }),
+                                    ),
+                                ),
+                                (
+                                    "tools/call ping",
+                                    example(
+                                        "Tool result",
+                                        json!({
+                                            "jsonrpc": "2.0",
+                                            "id": 2,
+                                            "result": {
+                                                "resultType": "complete",
+                                                "content": [{ "type": "text", "text": "pong" }],
+                                                "isError": false
+                                            }
+                                        }),
+                                    ),
+                                ),
+                            ])
                             .build(),
                     )
                     .build(),
             )
-            .response("400", Response::new("Bad request"))
-            .response("500", Response::new("Server error"))
+            .response(
+                "400",
+                Response::new("Invalid MCP request, headers or unsupported protocol version"),
+            )
+            .response("401", Response::new("Missing, invalid or revoked API key"))
+            .response("403", Response::new("Host header not in the MCP allowlist"))
             .build();
 
         let op = OperationBuilder::new()
-            .summary(Some("MCP endpoint"))
-            .description(Some(
-                "MCP endpoint served externally / not implemented as an Axum handler in this binary.",
+            .summary(Some("MCP endpoint (MCP 2026-07-28, stateless)"))
+            .description(Some(MCP_DESCRIPTION))
+            .parameter(header("X-API-KEY", "Client API key", "<api-key>"))
+            .parameter(header(
+                "MCP-Protocol-Version",
+                "MCP protocol version",
+                "2026-07-28",
             ))
-            .parameter(params)
+            .parameter(header(
+                "Mcp-Method",
+                "JSON-RPC method of the body (SEP-2243)",
+                "server/discover",
+            ))
             .request_body(Some(request_body))
             .responses(responses)
             .tag("mcp")
             .build();
 
-        // Add POST /mcp to paths
         openapi
             .paths
             .add_path_operation("/mcp", Vec::from([HttpMethod::Post]), op);
@@ -225,8 +236,6 @@ impl Modify for McpPath {
     ),
     components(
         schemas(
-            McpRequest,
-            McpResponse,
             CreateWalletRequest,
             CreateWalletResponse,
             GetBitcoinAddressRequest,
@@ -240,7 +249,7 @@ impl Modify for McpPath {
     ),
     tags(
         (name = "health", description = "Health check endpoints"),
-        (name = "mcp", description = "Model Context Protocol tools"),
+        (name = "mcp", description = "Model Context Protocol endpoint (MCP 2026-07-28)"),
         (name = "admin", description = "Administrative API endpoints"),
     )
 )]
@@ -252,4 +261,34 @@ pub struct ApiDoc;
 /// This allows users to explore and interact with the API documentation through a web interface.
 pub fn api_doc() -> SwaggerUi {
     SwaggerUi::new("/swagger-ui").url("/openapi.json", ApiDoc::openapi())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn openapi_documents_current_mcp_protocol_only() {
+        let spec = serde_json::to_value(ApiDoc::openapi()).expect("serializable spec");
+        let mcp = &spec["paths"]["/mcp"]["post"];
+        assert!(mcp.is_object(), "/mcp must be documented");
+
+        let text = spec.to_string();
+        assert!(text.contains("2026-07-28"));
+        for obsolete in ["2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25"] {
+            assert!(
+                !text.contains(obsolete),
+                "obsolete protocol version {obsolete}"
+            );
+        }
+        let examples = &mcp["requestBody"]["content"]["application/json"]["examples"];
+        let methods: Vec<&str> = examples
+            .as_object()
+            .expect("examples")
+            .values()
+            .filter_map(|e| e["value"]["method"].as_str())
+            .collect();
+        assert!(!methods.is_empty());
+        assert!(!methods.contains(&"initialize"), "no initialize examples");
+    }
 }

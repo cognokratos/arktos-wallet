@@ -1,5 +1,6 @@
 pub mod api_info;
 pub mod api_key;
+pub mod app;
 pub mod auth;
 pub mod config;
 pub mod crypto;

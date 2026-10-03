@@ -11,11 +11,11 @@ tokio = { version = "1", features = ["full"] }
 # Use rusqlite and bundle SQLCipher + a vendored OpenSSL
 rusqlite = { version = "0.38", features = ["bundled-sqlcipher-vendored-openssl"] }
 
-# Official MCP Rust SDK
-rmcp = { version = "0.12", features = [
+# Official MCP Rust SDK (MCP 2026-07-28, stateless Streamable HTTP server)
+rmcp = { version = "3.5", default-features = false, features = [
     "server",
     "macros",
-    "transport-streamable-http-server"
+    "transport-streamable-http-server",
 ] }
 
 axum = "0.8"
@@ -27,7 +27,7 @@ schemars = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
-# For graceful shutdown token used by rmcp streamable-http config
+# Shutdown token passed to the rmcp HTTP transport
 tokio-util = "0.7"
 anyhow = "1.0.100"
 chrono = { version = "0.4", features = ["serde"] }
@@ -50,5 +50,11 @@ utoipa-swagger-ui = { version = "9", features = ["axum"] }
 
 [dev-dependencies]
 tempfile = "3"
+# Official MCP client used by the protocol-level integration tests
+rmcp = { version = "3.5", default-features = false, features = [
+    "client",
+    "transport-streamable-http-client-reqwest",
+] }
+reqwest = { version = "0.13", default-features = false, features = ["json"] }
 
 

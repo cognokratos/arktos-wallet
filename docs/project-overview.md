@@ -4,7 +4,7 @@
 
 **Arktos Wallet** is an **open-source, educational blueprint** for building AI-controlled non-custodial wallets. It demonstrates secure wallet management, multi-account support, and blockchain integration patterns—designed for customization and regional compliance adaptation.
 
-Arktos is a backend HTTP server developed in Rust. It functions as a monolithic service designed to act as an "HTTP MCP server" (Model Context Protocol). The technology stack is modern and asynchronous, built on the Tokio runtime and the Axum web framework.
+Arktos is a backend HTTP server developed in Rust. It functions as a monolithic service designed to act as an "HTTP MCP server" implementing [MCP `2026-07-28`](https://modelcontextprotocol.io/specification/2026-07-28) over the stateless Streamable HTTP transport, using the official `rmcp` 3.x SDK. The technology stack is modern and asynchronous, built on the Tokio runtime and the Axum web framework.
 
 ## Key Features
 
@@ -23,7 +23,7 @@ Arktos is intentionally designed as a **customizable blueprint** for system owne
 
 - **Modular Architecture**: Clean separation of concerns enables easy extension
 - **Non-Custodial Model**: System owners maintain complete control of encryption keys
-- **Stateless Service**: Enables horizontal scaling and resilience
+- **Stateless MCP Protocol**: No MCP sessions; every request is independent (wallet data itself is persistent)
 - **Security-First Design**: Encryption, authentication, and authorization by default
 - **Compliance-Ready**: Built-in patterns for GDPR, HIPAA, and other regulations
 
@@ -35,7 +35,7 @@ Arktos is intentionally designed as a **customizable blueprint** for system owne
 | **Web Framework** | Axum                  | Async HTTP server                 |
 | **Async Runtime** | Tokio                 | Non-blocking I/O                  |
 | **Database**      | SQLite + SQLCipher    | Encrypted local persistence       |
-| **Protocol**      | RMCP (MCP SDK)        | AI agent integration              |
+| **Protocol**      | MCP `2026-07-28` via `rmcp` 3.x | AI agent integration (stateless HTTP) |
 | **Serialization** | Serde + JSON          | Data encoding                     |
 | **Cryptography**  | secp256k1, bip39, bip32 | Blockchain standards            |
 
@@ -46,7 +46,9 @@ The project is a **monolith**, with a single, cohesive codebase designed to be s
 ```
 arktos-wallet/
 ├── src/
-│   ├── main.rs          # Application entry point, HTTP server, MCP handling
+│   ├── main.rs          # Application entry point, configuration, graceful shutdown
+│   ├── app.rs           # HTTP router: /healthz, /admin/*, /mcp
+│   ├── mcp.rs           # MCP tools and stateless MCP transport
 │   ├── database.rs      # Database operations, encryption/decryption
 │   ├── wallet.rs        # Wallet management logic
 │   └── ...              # Additional modules as needed
@@ -98,13 +100,16 @@ The application follows an **API-centric architecture** with these key character
    - Wallet data & accounts
    - Audit logs
 
-### Stateless Design
+### Stateless MCP, Persistent Data
 
-No in-memory state between requests enables:
-- ✅ Horizontal scaling (multiple instances)
-- ✅ Load balancing
-- ✅ Fault tolerance (instance replacement without data loss)
-- ✅ Simplified operations and monitoring
+The MCP protocol layer keeps no session or transport state between requests:
+- ✅ No `initialize` handshake or `Mcp-Session-Id`; clients use `server/discover`
+- ✅ No sticky sessions: any request can be served on its own
+- ✅ Simple restarts: no MCP session state to lose
+
+Wallets, accounts and API keys are persistent and stored in a local SQLCipher
+database, so a deployment currently runs as a **single instance** (see
+[Performance & Scalability](#performance--scalability)).
 
 ## Core Functionality
 
@@ -112,6 +117,7 @@ No in-memory state between requests enables:
 
 All wallet functionality is exposed via Model Context Protocol (MCP) tools:
 
+0. **`ping`** - Liveness check of the MCP tool router
 1. **`create_wallet`** - Create new wallet with recovery passphrase
 2. **`get_bitcoin_address`** - Derive Bitcoin address for wallet
 3. **`get_ethereum_address`** - Derive Ethereum address for wallet
@@ -121,7 +127,8 @@ All wallet functionality is exposed via Model Context Protocol (MCP) tools:
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
 | `/healthz` | GET | Health check / liveness probe |
-| `/mcp` | POST | Model Context Protocol endpoint (auth required) |
+| `/mcp` | POST | MCP `2026-07-28` endpoint (client API key required) |
+| `/admin/api-keys` (+ `/{id}/revoke`, `/{id}/rotate`) | GET/POST | API key administration (admin key required) |
 
 ## Security by Default
 
@@ -208,30 +215,21 @@ See [Regional Compliance Guide](./regional-compliance.md) for detailed implement
 
 - **Wallet Creation**: < 500ms (p95)
 - **Address Retrieval**: < 100ms (p95)
-- **Concurrency**: 100+ req/s with horizontal scaling
+- **Concurrency**: 100+ req/s (target)
 - **Database Capacity**: 10,000 wallets, 50,000+ accounts per instance
 - **Uptime Target**: 99.9% (production deployment)
 
 ### Scalability Pattern
 
 ```
-    ┌──────────────────┐
-    │  Load Balancer   │
-    └────────┬─────────┘
-             │
-    ┌────────┼────────┐
-    ▼        ▼        ▼
-┌────────┬────────┬────────┐
-│Arktos 1│Arktos 2│Arktos N│
-└────────┴───┬────┴────────┘
-              │
-         ┌────▼──────┐
-         │ SQLCipher │
-         │ Database  │
-         └───────────┘
+MCP clients ──► Arktos (single instance) ──► SQLCipher file (local volume)
 ```
 
-Each instance is stateless and can be scaled horizontally with load balancing and shared encrypted database.
+- **MCP protocol layer**: stateless and horizontally routable — requests carry
+  everything needed to serve them.
+- **Current persistence**: a local SQLCipher (SQLite) file, intended for
+  single-instance deployment. Do not share one database file between multiple
+  containers or hosts. Multi-instance persistence is planned for a later stage.
 
 ## Key Documentation
 
