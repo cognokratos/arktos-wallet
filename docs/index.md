@@ -123,8 +123,8 @@ This document is the master index for all documentation related to the Arktos Wa
 
 - `ping` - Liveness check of the MCP tool router
 - `create_wallet` - Create new non-custodial wallet with recovery passphrase
-- `get_bitcoin_address` - Derive and retrieve Bitcoin address for wallet
-- `get_ethereum_address` - Derive and retrieve Ethereum address for wallet
+- `get_bitcoin_address` - BIP86 Taproot address on the configured Bitcoin network (structured result)
+- `get_ethereum_address` - EIP-55 Ethereum address with the configured chain ID (structured result)
 
 ### Endpoints
 

@@ -89,7 +89,16 @@ async fn serve() -> anyhow::Result<()> {
         "Database ready"
     );
     let keyring = Keyring::new(&config.master_key);
-    let wallet_services = Arc::new(WalletServices::new(db.clone(), keyring.wallet));
+    tracing::info!(
+        bitcoin_network = %config.chains.bitcoin_network,
+        ethereum_chain_id = config.chains.ethereum_chain_id.get(),
+        "Chain configuration"
+    );
+    let wallet_services = Arc::new(WalletServices::new(
+        db.clone(),
+        keyring.wallet,
+        config.chains,
+    ));
     let key_services = Arc::new(KeyServices::new(db.clone(), keyring.api_keys));
     let app_state = AppState {
         key_services,

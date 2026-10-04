@@ -119,9 +119,11 @@ database, so a deployment currently runs as a **single instance** (see
 All wallet functionality is exposed via Model Context Protocol (MCP) tools:
 
 0. **`ping`** - Liveness check of the MCP tool router
-1. **`create_wallet`** - Create new wallet with recovery passphrase
-2. **`get_bitcoin_address`** - Derive Bitcoin address for wallet
-3. **`get_ethereum_address`** - Derive Ethereum address for wallet
+1. **`create_wallet`** - Create a wallet (encrypted BIP39 recovery phrase); returns `wallet_id`, `wallet_name`, `created_at`
+2. **`get_bitcoin_address`** - BIP86 Taproot address on the configured Bitcoin network, with derivation path and public key
+3. **`get_ethereum_address`** - EIP-55 Ethereum address (BIP44 path) with the configured chain ID
+
+All wallet tools return structured JSON described by output schemas in `tools/list`; see [API Contracts](./api-contracts.md#mcp-tools).
 
 ### HTTP Endpoints
 

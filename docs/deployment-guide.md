@@ -43,6 +43,8 @@ docker run -p 8080:8080 arktos-wallet
 | `DATABASE_KEY` | yes | SQLCipher database key. Generate independently of `MASTER_KEY` (`make secret`); must not be equal to it. |
 | `DATABASE_PATH` | no | Database file. Image default `/data/arktos.db`; outside the image `data/arktos.db` relative to the working directory. Missing parent directories are created (mode `0700`); the file is `0600`. |
 | `MCP_ALLOWED_HOSTS` | no | Comma-separated `Host` values accepted on `/mcp` (default `localhost,127.0.0.1,::1`). Set it to the hostname(s) clients use, e.g. `wallet.example.com`; other hosts get `403` (DNS-rebinding protection). |
+| `BITCOIN_NETWORK` | no | `mainnet` (default), `testnet`, `signet` or `regtest`. Selects the address encoding and BIP86 coin type; any other value fails at startup. Accounts are stored per network. |
+| `ETHEREUM_CHAIN_ID` | no | Positive EIP-155 chain ID reported with Ethereum addresses (default `1`). Does not change derived addresses. |
 | `RUST_LOG` | no | Log filter, e.g. `info` |
 
 ## Generating Secrets

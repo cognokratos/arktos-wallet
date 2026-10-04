@@ -1,5 +1,6 @@
 use crate::api_key::ApiKey;
 use crate::database::{Database, StoreError};
+use crate::domain::ApiKeyName;
 use crate::key_store::KeyStore;
 use crate::keys::ApiKeyKeys;
 use std::sync::Arc;
@@ -19,6 +20,8 @@ impl KeyServices {
 
     /// Create a new API key entry in the database
     pub async fn create(&self, name: &str) -> anyhow::Result<String> {
+        let name = ApiKeyName::parse(name).map_err(|e| anyhow::anyhow!("API key name {e}"))?;
+        let name = name.as_str();
         let api_key = ApiKey::generate()?;
         self.store
             .create_api_key(name, &self.keys.hmac.hash(&api_key))

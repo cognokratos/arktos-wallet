@@ -3,12 +3,11 @@
 
 use arktos_wallet::api_key::ApiKey;
 use arktos_wallet::database::{Database, StoreError};
+use arktos_wallet::domain::{BitcoinNetwork, DerivationIndex, Network};
 use arktos_wallet::error::AppError;
 use arktos_wallet::key_services::KeyServices;
 use arktos_wallet::key_store::KeyStore;
 use arktos_wallet::keys::{Keyring, MasterKey};
-use arktos_wallet::wallet::ChainType;
-use arktos_wallet::wallet_manager::derivation_path;
 use arktos_wallet::wallet_services::{
     CreateWalletRequest, GetBitcoinAddressRequest, WalletServices,
 };
@@ -63,12 +62,18 @@ async fn owner(db: &Arc<Database>, name: &str) -> i64 {
         .unwrap()
 }
 
-fn account(wallet_id: i64, chain: ChainType, index: u32) -> NewAccount {
+const BTC: Network = Network::Bitcoin(BitcoinNetwork::Mainnet);
+
+fn idx(i: u32) -> DerivationIndex {
+    DerivationIndex::new(i).unwrap()
+}
+
+fn account(wallet_id: i64, network: Network, index: u32) -> NewAccount {
     NewAccount {
         wallet_id,
-        derivation_path: derivation_path(&chain, index),
-        chain_type: chain,
-        account_index: index,
+        derivation_path: network.derivation_path(idx(index)),
+        network,
+        account_index: idx(index),
         public_key: format!("0xpub{index}"),
         address: format!("addr{index}"),
     }
@@ -93,8 +98,8 @@ async fn empty_database_is_migrated_and_configured() {
     let db = fx.open();
 
     let info = db.info().await.unwrap();
-    assert_eq!(info.schema_version, 1);
-    assert_eq!(info.latest_schema_version, 1);
+    assert_eq!(info.schema_version, 2);
+    assert_eq!(info.latest_schema_version, 2);
     assert!(info.foreign_keys, "foreign keys must be enforced");
     assert_eq!(info.journal_mode, "wal");
     assert_eq!(info.synchronous, 2, "synchronous = FULL");
@@ -108,6 +113,7 @@ async fn empty_database_is_migrated_and_configured() {
             "id",
             "wallet_id",
             "chain_type",
+            "network",
             "account_index",
             "derivation_path",
             "public_key",
@@ -132,7 +138,7 @@ async fn reopening_is_idempotent_and_keeps_data() {
 
     for _ in 0..2 {
         let db = fx.open();
-        assert_eq!(db.info().await.unwrap().schema_version, 1);
+        assert_eq!(db.info().await.unwrap().schema_version, 2);
         assert!(
             WalletStore::new(db)
                 .get_wallet(key_id, "main")
@@ -252,7 +258,7 @@ async fn foreign_keys_are_enforced() {
     );
     assert_eq!(
         wallets
-            .insert_account(account(999, ChainType::Bitcoin, 0))
+            .insert_account(account(999, BTC, 0))
             .await
             .unwrap_err(),
         StoreError::ForeignKeyViolation
@@ -298,18 +304,18 @@ async fn accounts_are_unique_and_insert_is_idempotent() {
     let wallet = wallets.create_wallet(key_id, "w", "x").await.unwrap();
 
     let first = wallets
-        .insert_account(account(wallet.id, ChainType::Bitcoin, 0))
+        .insert_account(account(wallet.id, BTC, 0))
         .await
         .unwrap();
     let again = wallets
-        .insert_account(account(wallet.id, ChainType::Bitcoin, 0))
+        .insert_account(account(wallet.id, BTC, 0))
         .await
         .unwrap();
     assert_eq!(first.id, again.id, "same row is returned");
     assert_eq!(first.derivation_path, "m/86'/0'/0'/0/0");
 
     // Same wallet + chain + index with different public data is never stored.
-    let mut conflicting = account(wallet.id, ChainType::Bitcoin, 0);
+    let mut conflicting = account(wallet.id, BTC, 0);
     conflicting.address = "other".into();
     assert!(matches!(
         wallets.insert_account(conflicting).await.unwrap_err(),
@@ -318,7 +324,7 @@ async fn accounts_are_unique_and_insert_is_idempotent() {
 
     // Other chain / index are separate accounts.
     let eth = wallets
-        .insert_account(account(wallet.id, ChainType::Ethereum, 0))
+        .insert_account(account(wallet.id, Network::Ethereum, 0))
         .await
         .unwrap();
     assert_ne!(eth.id, first.id);
@@ -333,23 +339,127 @@ async fn check_constraints_reject_inconsistent_rows() {
     let wallets = WalletStore::new(db.clone());
     let wallet = wallets.create_wallet(key_id, "w", "x").await.unwrap();
 
-    let mut wrong_path = account(wallet.id, ChainType::Bitcoin, 1);
-    wrong_path.derivation_path = derivation_path(&ChainType::Ethereum, 1);
+    let mut wrong_path = account(wallet.id, BTC, 1);
+    wrong_path.derivation_path = Network::Ethereum.derivation_path(idx(1));
     assert!(matches!(
         wallets.insert_account(wrong_path).await.unwrap_err(),
         StoreError::ConstraintViolation(_)
     ));
 
-    let hardened = account(wallet.id, ChainType::Bitcoin, 1 << 31);
+    // Testnet accounts must use coin type 1'.
+    let mut wrong_coin = account(wallet.id, Network::Bitcoin(BitcoinNetwork::Testnet), 1);
+    wrong_coin.derivation_path = BTC.derivation_path(idx(1));
     assert!(matches!(
-        wallets.insert_account(hardened).await.unwrap_err(),
+        wallets.insert_account(wrong_coin).await.unwrap_err(),
         StoreError::ConstraintViolation(_)
     ));
+
+    // Ethereum addresses are stored in canonical lowercase.
+    let mut mixed_case = account(wallet.id, Network::Ethereum, 2);
+    mixed_case.address = "0xAbC".into();
+    assert!(matches!(
+        wallets.insert_account(mixed_case).await.unwrap_err(),
+        StoreError::ConstraintViolation(_)
+    ));
+
+    // Hardened indices cannot be built as a DerivationIndex; the schema
+    // rejects them too.
+    let wallet_id = wallet.id;
+    let hardened = db
+        .write(move |tx| {
+            tx.execute(
+                "INSERT INTO accounts (wallet_id, chain_type, network, account_index, derivation_path, public_key, address)
+                 VALUES (?1, 'Bitcoin', 'mainnet', 2147483648, 'm/86''/0''/0''/0/2147483648', 'pk', 'addr')",
+                [wallet_id],
+            )?;
+            Ok(())
+        })
+        .await;
+    assert!(matches!(hardened, Err(StoreError::ConstraintViolation(_))));
 
     assert!(matches!(
         wallets.create_wallet(key_id, "", "x").await.unwrap_err(),
         StoreError::ConstraintViolation(_)
     ));
+}
+
+#[tokio::test]
+async fn accounts_are_isolated_by_network() {
+    let fx = Fixture::new();
+    let db = fx.open();
+    let key_id = owner(&db, "a").await;
+    let wallets = WalletStore::new(db);
+    let wallet = wallets.create_wallet(key_id, "w", "x").await.unwrap();
+
+    let testnet = Network::Bitcoin(BitcoinNetwork::Testnet);
+    let regtest = Network::Bitcoin(BitcoinNetwork::Regtest);
+    let main_row = wallets
+        .insert_account(account(wallet.id, BTC, 0))
+        .await
+        .unwrap();
+    assert_eq!(
+        wallets
+            .get_account(wallet.id, testnet, idx(0))
+            .await
+            .unwrap(),
+        None,
+        "a mainnet account is never returned for testnet"
+    );
+    let test_row = wallets
+        .insert_account(account(wallet.id, testnet, 0))
+        .await
+        .unwrap();
+    let reg_row = wallets
+        .insert_account(account(wallet.id, regtest, 0))
+        .await
+        .unwrap();
+    assert_ne!(main_row.id, test_row.id);
+    assert_ne!(test_row.id, reg_row.id);
+    assert_eq!(test_row.network, testnet);
+    assert_eq!(test_row.derivation_path, "m/86'/1'/0'/0/0");
+    assert_eq!(
+        wallets.get_account(wallet.id, BTC, idx(0)).await.unwrap(),
+        Some(main_row)
+    );
+}
+
+#[tokio::test]
+async fn v1_database_is_upgraded_to_v2() {
+    let fx = Fixture::new();
+    // Build a schema-version-1 database exactly as the previous release did.
+    let raw = fx.raw();
+    raw.execute_batch(include_str!("../migrations/V1__initial_schema.sql"))
+        .unwrap();
+    raw.pragma_update(None, "user_version", 1).unwrap();
+    raw.execute_batch(&format!(
+        "INSERT INTO api_keys (id, key_hash, key_name) VALUES (1, '{}', 'old');
+         INSERT INTO wallets (id, key_id, name, encrypted_passphrase) VALUES (1, 1, 'w', 'x');
+         INSERT INTO accounts (id, wallet_id, chain_type, account_index, derivation_path, public_key, address)
+           VALUES (10, 1, 'Bitcoin', 0, 'm/86''/0''/0''/0/0', '0xpk', 'bc1pold'),
+                  (11, 1, 'Ethereum', 0, 'm/44''/60''/0''/0/0', '0xpk', '0xabcdef');",
+        "d".repeat(64)
+    ))
+    .unwrap();
+    drop(raw);
+
+    let db = fx.open();
+    assert_eq!(db.info().await.unwrap().schema_version, 2);
+    let wallets = WalletStore::new(db);
+    let btc = wallets.get_account(1, BTC, idx(0)).await.unwrap().unwrap();
+    assert_eq!((btc.id, btc.address.as_str()), (10, "bc1pold"));
+    let eth = wallets
+        .get_account(1, Network::Ethereum, idx(0))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!((eth.id, eth.address.as_str()), (11, "0xabcdef"));
+    assert!(
+        wallets
+            .get_account(1, Network::Bitcoin(BitcoinNetwork::Signet), idx(0))
+            .await
+            .unwrap()
+            .is_none()
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -447,7 +557,11 @@ async fn timestamps_come_from_the_database_in_utc() {
 
 fn services(db: &Arc<Database>) -> (Arc<WalletServices>, Arc<KeyServices>) {
     (
-        Arc::new(WalletServices::new(db.clone(), keyring().wallet)),
+        Arc::new(WalletServices::new(
+            db.clone(),
+            keyring().wallet,
+            Default::default(),
+        )),
         Arc::new(KeyServices::new(db.clone(), keyring().api_keys)),
     )
 }
@@ -485,7 +599,7 @@ async fn concurrent_requests_respect_constraints_without_deadlock() {
         for task in creations {
             match task.await.unwrap() {
                 Ok(_) => created += 1,
-                Err(AppError::WalletAlreadyExists(_)) => {}
+                Err(AppError::WalletAlreadyExists { .. }) => {}
                 Err(other) => panic!("unexpected error: {other:?}"),
             }
         }
@@ -519,7 +633,7 @@ async fn concurrent_requests_respect_constraints_without_deadlock() {
                     )
                     .await
                     .unwrap()
-                    .bitcoin_address
+                    .address
             }));
         }
         let mut addresses = Vec::new();

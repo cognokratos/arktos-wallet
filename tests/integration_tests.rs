@@ -1,5 +1,5 @@
+use arktos_wallet::domain::{BitcoinNetwork, DerivationIndex, Network};
 use arktos_wallet::key_services::KeyServices;
-use arktos_wallet::wallet::ChainType::Bitcoin;
 use arktos_wallet::wallet_store::WalletStore;
 use arktos_wallet::{
     database::Database,
@@ -26,7 +26,7 @@ async fn test_create_wallet_integration() {
     let db =
         Arc::new(Database::new(&db_path, "test_cipher_key").expect("Failed to create database"));
     let key_services = KeyServices::new(db.clone(), test_keyring().api_keys);
-    let services = WalletServices::new(db, test_keyring().wallet);
+    let services = WalletServices::new(db, test_keyring().wallet, Default::default());
 
     let api_key = key_services.create("IntegrationTestAPIKey").await.unwrap();
     let api_key = key_services.validate(&api_key).await.unwrap();
@@ -61,7 +61,7 @@ async fn test_wallet_persistence_after_creation() {
         let db = Arc::new(
             Database::new(&db_path, "test_cipher_key").expect("Failed to create database"),
         );
-        let services = WalletServices::new(db, test_keyring().wallet);
+        let services = WalletServices::new(db, test_keyring().wallet, Default::default());
 
         let req = CreateWalletRequest {
             wallet_name: "PersistenceTest".to_string(),
@@ -102,7 +102,7 @@ async fn test_wallet_and_account_creation_integration() {
     let db =
         Arc::new(Database::new(&db_path, "test_cipher_key").expect("Failed to create database"));
     let key_services = KeyServices::new(db.clone(), test_keyring().api_keys);
-    let services = WalletServices::new(db.clone(), test_keyring().wallet);
+    let services = WalletServices::new(db.clone(), test_keyring().wallet, Default::default());
 
     let api_key = key_services.create("IntegrationTestAPIKey").await.unwrap();
     let api_key = key_services.validate(&api_key).await.unwrap();
@@ -130,7 +130,7 @@ async fn test_wallet_and_account_creation_integration() {
 
     assert_eq!(btc_account.wallet_name, wallet_name);
     assert_eq!(btc_account.account_index, 0);
-    assert!(!btc_account.bitcoin_address.is_empty());
+    assert!(!btc_account.address.is_empty());
 
     // Step 3: Create Ethereum account
     // TODO: Implement Ethereum account creation in WalletServices
@@ -154,7 +154,7 @@ async fn test_wallet_and_account_creation_integration() {
 
     // Step 6: Verify different indices produce different keys
     assert_ne!(
-        btc_account.bitcoin_address, btc_account_idx1.bitcoin_address,
+        btc_account.address, btc_account_idx1.address,
         "Different account indices should have different keys"
     );
 
@@ -162,15 +162,22 @@ async fn test_wallet_and_account_creation_integration() {
 
     // Step 7: Verify accounts are persisted in database
     let stored_account = wallet_store
-        .get_account(wallet_id, 0, &Bitcoin)
+        .get_account(
+            wallet_id,
+            Network::Bitcoin(BitcoinNetwork::Mainnet),
+            DerivationIndex::new(0).unwrap(),
+        )
         .await
         .expect("Failed to query account")
         .expect("Account should exist in database");
 
     assert_eq!(stored_account.wallet_id, wallet_id);
     assert_eq!(stored_account.account_index, 0);
-    assert_eq!(stored_account.chain_type, Bitcoin);
-    assert_eq!(stored_account.address, btc_account.bitcoin_address);
+    assert_eq!(
+        stored_account.network,
+        Network::Bitcoin(BitcoinNetwork::Mainnet)
+    );
+    assert_eq!(stored_account.address, btc_account.address);
 }
 
 #[tokio::test]
@@ -186,7 +193,7 @@ async fn test_get_bitcoin_address_integration() {
     let db =
         Arc::new(Database::new(&db_path, "test_cipher_key").expect("Failed to create database"));
     let key_services = KeyServices::new(db.clone(), test_keyring().api_keys);
-    let services = WalletServices::new(db, test_keyring().wallet);
+    let services = WalletServices::new(db, test_keyring().wallet, Default::default());
 
     let api_key = key_services.create("IntegrationTestAPIKey").await.unwrap();
     let api_key = key_services.validate(&api_key).await.unwrap();
@@ -213,10 +220,10 @@ async fn test_get_bitcoin_address_integration() {
     assert_eq!(addr_resp.wallet_name, wallet_resp.wallet_name);
     assert_eq!(addr_resp.account_index, 0);
     assert!(
-        addr_resp.bitcoin_address.starts_with("bc1"),
+        addr_resp.address.starts_with("bc1"),
         "Should be valid Bitcoin address (Taproot)"
     );
-    assert!(!addr_resp.bitcoin_address.is_empty());
+    assert!(!addr_resp.address.is_empty());
 }
 
 #[tokio::test]
@@ -232,7 +239,7 @@ async fn test_get_bitcoin_address_different_indices_produce_different_addresses(
     let db =
         Arc::new(Database::new(&db_path, "test_cipher_key").expect("Failed to create database"));
     let key_services = KeyServices::new(db.clone(), test_keyring().api_keys);
-    let services = WalletServices::new(db, test_keyring().wallet);
+    let services = WalletServices::new(db, test_keyring().wallet, Default::default());
 
     let api_key = key_services.create("IntegrationTestAPIKey").await.unwrap();
     let api_key = key_services.validate(&api_key).await.unwrap();
@@ -268,11 +275,11 @@ async fn test_get_bitcoin_address_different_indices_produce_different_addresses(
 
     // Verify addresses are different
     assert_ne!(
-        addr_0.bitcoin_address, addr_1.bitcoin_address,
+        addr_0.address, addr_1.address,
         "Different account indices should produce different Bitcoin addresses"
     );
-    assert!(addr_0.bitcoin_address.starts_with("bc1"));
-    assert!(addr_1.bitcoin_address.starts_with("bc1"));
+    assert!(addr_0.address.starts_with("bc1"));
+    assert!(addr_1.address.starts_with("bc1"));
 }
 
 #[tokio::test]
@@ -288,7 +295,7 @@ async fn test_get_bitcoin_address_consistency() {
     let db =
         Arc::new(Database::new(&db_path, "test_cipher_key").expect("Failed to create database"));
     let key_services = KeyServices::new(db.clone(), test_keyring().api_keys);
-    let services = WalletServices::new(db, test_keyring().wallet);
+    let services = WalletServices::new(db, test_keyring().wallet, Default::default());
 
     let api_key = key_services.create("IntegrationTestAPIKey").await.unwrap();
     let api_key = key_services.validate(&api_key).await.unwrap();
@@ -324,7 +331,7 @@ async fn test_get_bitcoin_address_consistency() {
 
     // Verify same address is returned
     assert_eq!(
-        addr_1.bitcoin_address, addr_2.bitcoin_address,
+        addr_1.address, addr_2.address,
         "Same wallet and account index should produce the same Bitcoin address"
     );
 }
@@ -342,7 +349,7 @@ async fn test_get_bitcoin_address_with_default_account_index_integration() {
     let db =
         Arc::new(Database::new(&db_path, "test_cipher_key").expect("Failed to create database"));
     let key_services = KeyServices::new(db.clone(), test_keyring().api_keys);
-    let services = WalletServices::new(db, test_keyring().wallet);
+    let services = WalletServices::new(db, test_keyring().wallet, Default::default());
 
     let api_key = key_services.create("IntegrationTestAPIKey").await.unwrap();
     let api_key = key_services.validate(&api_key).await.unwrap();
@@ -368,7 +375,7 @@ async fn test_get_bitcoin_address_with_default_account_index_integration() {
 
     // Verify it defaults to account index 0
     assert_eq!(addr.account_index, 0);
-    assert!(addr.bitcoin_address.starts_with("bc1"));
+    assert!(addr.address.starts_with("bc1"));
 }
 
 #[tokio::test]
@@ -384,7 +391,7 @@ async fn test_get_bitcoin_address_invalid_wallet_returns_error() {
     let db =
         Arc::new(Database::new(&db_path, "test_cipher_key").expect("Failed to create database"));
     let key_services = KeyServices::new(db.clone(), test_keyring().api_keys);
-    let services = WalletServices::new(db, test_keyring().wallet);
+    let services = WalletServices::new(db, test_keyring().wallet, Default::default());
 
     let api_key = key_services.create("IntegrationTestAPIKey").await.unwrap();
     let api_key = key_services.validate(&api_key).await.unwrap();
@@ -416,7 +423,7 @@ async fn test_get_bitcoin_address_performance_requirement() {
     let db =
         Arc::new(Database::new(&db_path, "test_cipher_key").expect("Failed to create database"));
     let key_services = KeyServices::new(db.clone(), test_keyring().api_keys);
-    let services = WalletServices::new(db, test_keyring().wallet);
+    let services = WalletServices::new(db, test_keyring().wallet, Default::default());
 
     let api_key = key_services.create("PerformanceTestAPIKey").await.unwrap();
     let api_key = key_services.validate(&api_key).await.unwrap();

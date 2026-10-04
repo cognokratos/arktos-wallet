@@ -1,5 +1,6 @@
 use crate::api_key::ApiKey;
 use crate::database::{Database, StoreError};
+use crate::domain::ApiKeyName;
 use crate::key_services::KeyServices;
 use axum::Json;
 use axum::body::Body;
@@ -21,29 +22,67 @@ pub struct AppState {
     pub database: Arc<Database>,
 }
 
-type HandlerError = (StatusCode, &'static str);
+/// Admin API error body (same shape as MCP tool errors).
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ErrorBody {
+    pub error: ErrorDetail,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ErrorDetail {
+    /// `invalid_argument`, `not_found`, `unavailable` or `internal`.
+    pub code: String,
+    pub message: String,
+}
+
+type HandlerError = (StatusCode, Json<ErrorBody>);
+
+fn error(status: StatusCode, code: &str, message: impl Into<String>) -> HandlerError {
+    (
+        status,
+        Json(ErrorBody {
+            error: ErrorDetail {
+                code: code.into(),
+                message: message.into(),
+            },
+        }),
+    )
+}
 
 /// Map a persistence failure to a safe HTTP error, logging the details.
-fn store_failure(action: &'static str, error: &StoreError) -> HandlerError {
-    tracing::warn!(%error, "{action} failed");
-    match error {
-        StoreError::ConstraintViolation(_) => (StatusCode::BAD_REQUEST, "Invalid request"),
-        StoreError::Unavailable(_) => (StatusCode::SERVICE_UNAVAILABLE, "Database unavailable"),
-        _ => (StatusCode::INTERNAL_SERVER_ERROR, "Internal error"),
+fn store_failure(action: &'static str, e: &StoreError) -> HandlerError {
+    tracing::warn!(error = %e, "{action} failed");
+    match e {
+        StoreError::Unavailable(_) => error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "unavailable",
+            "database unavailable",
+        ),
+        _ => error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "internal",
+            "internal error",
+        ),
     }
 }
 
-fn internal_failure(action: &'static str, error: &anyhow::Error) -> HandlerError {
-    match error.downcast_ref::<StoreError>() {
+fn internal_failure(action: &'static str, e: &anyhow::Error) -> HandlerError {
+    match e.downcast_ref::<StoreError>() {
         Some(store) => store_failure(action, store),
         None => {
-            tracing::warn!(error = %error, "{action} failed");
-            (StatusCode::INTERNAL_SERVER_ERROR, "Internal error")
+            tracing::warn!(error = %e, "{action} failed");
+            error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "internal",
+                "internal error",
+            )
         }
     }
 }
 
-const UNKNOWN_KEY: HandlerError = (StatusCode::NOT_FOUND, "API key not found");
+fn unknown_key() -> HandlerError {
+    error(StatusCode::NOT_FOUND, "not_found", "API key not found")
+}
 
 /// Constant-time comparison of a presented admin key (length is not hidden).
 fn is_admin_key(presented: &str, expected: &SecretString) -> bool {
@@ -103,6 +142,8 @@ pub async fn api_key_auth(
 
 #[derive(Deserialize, ToSchema)]
 pub struct CreateApiKeyRequest {
+    /// Label for the key: 1-255 characters, no leading/trailing whitespace,
+    /// no control characters.
     pub name: String,
 }
 
@@ -119,9 +160,10 @@ pub struct NewApiKeyResponse {
     ),
     request_body = CreateApiKeyRequest,
     responses(
-        (status = 200, description = "API key created", body = NewApiKeyResponse),
-        (status = 400, description = "Invalid key name (1-255 characters)"),
-        (status = 503, description = "Database unavailable")
+        (status = 200, description = "API key created (shown only once)", body = NewApiKeyResponse),
+        (status = 400, description = "Invalid key name", body = ErrorBody),
+        (status = 401, description = "Missing or invalid admin key"),
+        (status = 503, description = "Database unavailable", body = ErrorBody)
     ),
     tag = "admin"
 )]
@@ -129,9 +171,16 @@ pub async fn create_api_key(
     State(state): State<AppState>,
     Json(payload): Json<CreateApiKeyRequest>,
 ) -> Result<Json<NewApiKeyResponse>, HandlerError> {
+    let name = ApiKeyName::parse(&payload.name).map_err(|e| {
+        error(
+            StatusCode::BAD_REQUEST,
+            "invalid_argument",
+            format!("name {e}"),
+        )
+    })?;
     let api_key = state
         .key_services
-        .create(&payload.name)
+        .create(name.as_str())
         .await
         .map_err(|e| internal_failure("create API key", &e))?;
     Ok(Json(NewApiKeyResponse { api_key }))
@@ -144,9 +193,10 @@ pub async fn create_api_key(
         ("X-API-KEY" = String, Header, description = "Admin API key for authentication")
     ),
     responses(
-        (status = 200, description = "API key rotated", body = NewApiKeyResponse),
-        (status = 404, description = "Unknown API key id"),
-        (status = 503, description = "Database unavailable")
+        (status = 200, description = "API key rotated; the old key stops working", body = NewApiKeyResponse),
+        (status = 401, description = "Missing or invalid admin key"),
+        (status = 404, description = "Unknown API key id", body = ErrorBody),
+        (status = 503, description = "Database unavailable", body = ErrorBody)
     ),
     tag = "admin"
 )]
@@ -159,7 +209,7 @@ pub async fn rotate_api_key(
         .rotate(id)
         .await
         .map_err(|e| internal_failure("rotate API key", &e))?
-        .ok_or(UNKNOWN_KEY)?;
+        .ok_or_else(unknown_key)?;
     Ok(Json(NewApiKeyResponse { api_key }))
 }
 
@@ -175,7 +225,9 @@ pub struct ListApiKeysResponse {
         ("X-API-KEY" = String, Header, description = "Admin API key for authentication")
     ),
     responses(
-        (status = 200, description = "List of API keys", body = ListApiKeysResponse)
+        (status = 200, description = "List of API keys (no secrets)", body = ListApiKeysResponse),
+        (status = 401, description = "Missing or invalid admin key"),
+        (status = 503, description = "Database unavailable", body = ErrorBody)
     ),
     tag = "admin"
 )]
@@ -202,9 +254,10 @@ pub struct RevokeApiKeyRequest {
         ("X-API-KEY" = String, Header, description = "Admin API key for authentication")
     ),
     responses(
-        (status = 200, description = "API key revoked"),
-        (status = 404, description = "Unknown API key id"),
-        (status = 503, description = "Database unavailable")
+        (status = 200, description = "API key revoked", content_type = "text/plain"),
+        (status = 401, description = "Missing or invalid admin key"),
+        (status = 404, description = "Unknown API key id", body = ErrorBody),
+        (status = 503, description = "Database unavailable", body = ErrorBody)
     ),
     tag = "admin"
 )]
@@ -220,7 +273,7 @@ pub async fn revoke_api_key(
     if revoked {
         Ok("API key revoked")
     } else {
-        Err(UNKNOWN_KEY)
+        Err(unknown_key())
     }
 }
 

@@ -2,16 +2,16 @@
 //! key (`key_id`), so one owner can never read another owner's wallets.
 
 use crate::database::{Database, StoreError};
-use crate::wallet::{Account, ChainType, Wallet};
+use crate::domain::{Chain, DerivationIndex, Network};
+use crate::wallet::{Account, Wallet};
 use rusqlite::{OptionalExtension, Row, params};
-use std::str::FromStr;
 use std::sync::Arc;
 
 /// Public data of a newly derived account.
 pub struct NewAccount {
     pub wallet_id: i64,
-    pub chain_type: ChainType,
-    pub account_index: u32,
+    pub network: Network,
+    pub account_index: DerivationIndex,
     pub derivation_path: String,
     pub public_key: String,
     pub address: String,
@@ -22,8 +22,8 @@ pub struct WalletStore {
 }
 
 const WALLET_COLUMNS: &str = "id, name, encrypted_passphrase, created_at";
-const ACCOUNT_COLUMNS: &str =
-    "id, wallet_id, account_index, derivation_path, address, public_key, chain_type, created_at";
+const ACCOUNT_COLUMNS: &str = "id, wallet_id, account_index, derivation_path, address, public_key, \
+     chain_type, network, created_at";
 
 fn wallet_from_row(row: &Row<'_>) -> rusqlite::Result<Wallet> {
     Ok(Wallet {
@@ -34,12 +34,14 @@ fn wallet_from_row(row: &Row<'_>) -> rusqlite::Result<Wallet> {
     })
 }
 
-/// Map an account row; an unknown chain type is reported as corrupt data.
+/// Map an account row; an unknown chain/network pair is reported as corrupt data.
 fn account_from_row(row: &Row<'_>) -> rusqlite::Result<Result<Account, StoreError>> {
-    let chain: String = row.get(6)?;
-    let Ok(chain_type) = ChainType::from_str(&chain) else {
+    let (chain, network): (String, String) = (row.get(6)?, row.get(7)?);
+    let Some(network) =
+        Chain::from_storage_str(&chain).and_then(|chain| Network::from_storage(chain, &network))
+    else {
         return Ok(Err(StoreError::CorruptData(format!(
-            "unknown chain type in accounts row {}",
+            "unknown chain/network in accounts row {}",
             row.get::<_, i64>(0)?
         ))));
     };
@@ -50,10 +52,13 @@ fn account_from_row(row: &Row<'_>) -> rusqlite::Result<Result<Account, StoreErro
         derivation_path: row.get(3)?,
         address: row.get(4)?,
         public_key: row.get(5)?,
-        chain_type,
-        created_at: row.get(7)?,
+        network,
+        created_at: row.get(8)?,
     }))
 }
+
+const SELECT_ACCOUNT: &str =
+    "WHERE wallet_id = ?1 AND chain_type = ?2 AND network = ?3 AND account_index = ?4";
 
 impl WalletStore {
     pub fn new(db: Arc<Database>) -> Self {
@@ -138,22 +143,23 @@ impl WalletStore {
             .await
     }
 
-    /// The account for wallet + chain + index, if it was derived before.
+    /// The account for wallet + network + index, if it was derived before.
     pub async fn get_account(
         &self,
         wallet_id: i64,
-        account_index: u32,
-        chain_type: &ChainType,
+        network: Network,
+        account_index: DerivationIndex,
     ) -> Result<Option<Account>, StoreError> {
-        let chain = chain_type.to_string();
         self.db
             .read(move |conn| {
                 conn.query_row(
-                    &format!(
-                        "SELECT {ACCOUNT_COLUMNS} FROM accounts
-                         WHERE wallet_id = ?1 AND account_index = ?2 AND chain_type = ?3"
-                    ),
-                    params![wallet_id, account_index, chain],
+                    &format!("SELECT {ACCOUNT_COLUMNS} FROM accounts {SELECT_ACCOUNT}"),
+                    params![
+                        wallet_id,
+                        network.chain().as_storage_str(),
+                        network.as_storage_str(),
+                        account_index.get()
+                    ],
                     account_from_row,
                 )
                 .optional()?
@@ -168,30 +174,29 @@ impl WalletStore {
     pub async fn insert_account(&self, account: NewAccount) -> Result<Account, StoreError> {
         self.db
             .write(move |tx| {
-                let chain = account.chain_type.to_string();
+                let chain = account.network.chain().as_storage_str();
+                let network = account.network.as_storage_str();
+                let index = account.account_index.get();
                 tx.execute(
                     "INSERT INTO accounts
-                         (wallet_id, chain_type, account_index, derivation_path, public_key, address)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6)
-                     ON CONFLICT (wallet_id, chain_type, account_index) DO NOTHING",
+                         (wallet_id, chain_type, network, account_index, derivation_path, public_key, address)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                     ON CONFLICT (wallet_id, chain_type, network, account_index) DO NOTHING",
                     params![
                         account.wallet_id,
                         chain,
-                        account.account_index,
+                        network,
+                        index,
                         account.derivation_path,
                         account.public_key,
                         account.address
                     ],
                 )?;
-                let stored = tx
-                    .query_row(
-                        &format!(
-                            "SELECT {ACCOUNT_COLUMNS} FROM accounts
-                             WHERE wallet_id = ?1 AND account_index = ?2 AND chain_type = ?3"
-                        ),
-                        params![account.wallet_id, account.account_index, chain],
-                        account_from_row,
-                    )??;
+                let stored = tx.query_row(
+                    &format!("SELECT {ACCOUNT_COLUMNS} FROM accounts {SELECT_ACCOUNT}"),
+                    params![account.wallet_id, chain, network, index],
+                    account_from_row,
+                )??;
                 if stored.address != account.address || stored.public_key != account.public_key {
                     return Err(StoreError::CorruptData(format!(
                         "stored account {} does not match its derivation",

@@ -5,9 +5,9 @@
 use arktos_wallet::api_key::ApiKey;
 use arktos_wallet::crypto;
 use arktos_wallet::database::Database;
+use arktos_wallet::domain::{DerivationIndex, Network};
 use arktos_wallet::key_services::KeyServices;
 use arktos_wallet::keys::{Keyring, MasterKey};
-use arktos_wallet::wallet::ChainType;
 use arktos_wallet::wallet_services::{
     CreateWalletRequest, GetBitcoinAddressRequest, GetEthereumAddressRequest, WalletServices,
 };
@@ -44,7 +44,11 @@ impl Fixture {
     }
 
     fn wallet_services(&self, master: [u8; 32]) -> WalletServices {
-        WalletServices::new(self.db.clone(), self.keyring(master).wallet)
+        WalletServices::new(
+            self.db.clone(),
+            self.keyring(master).wallet,
+            Default::default(),
+        )
     }
 
     async fn api_key(&self) -> ApiKey {
@@ -164,11 +168,16 @@ async fn accounts_persist_only_public_data() {
         .id;
     let account = fx
         .store()
-        .get_account(wallet_id, 0, &ChainType::Ethereum)
+        .get_account(
+            wallet_id,
+            Network::Ethereum,
+            DerivationIndex::new(0).unwrap(),
+        )
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(account.address, eth_resp.ethereum_address);
+    // Stored canonically in lowercase; returned with the EIP-55 checksum.
+    assert_eq!(account.address, eth_resp.address.to_lowercase());
 
     let (columns, cells) = fx.dump_database();
     assert!(
@@ -200,7 +209,11 @@ async fn responses_never_contain_seed_or_private_key() {
         .unwrap()
         .unwrap();
 
-    let rendered = format!("{btc_resp} {eth_resp} {btc_resp:?} {eth_resp:?} {wallet:?}");
+    let rendered = format!(
+        "{} {} {btc_resp:?} {eth_resp:?} {wallet:?}",
+        serde_json::to_string(&btc_resp).unwrap(),
+        serde_json::to_string(&eth_resp).unwrap()
+    );
     assert!(!rendered.contains(TEST_ETH_PRIVATE_KEY), "{rendered}");
     assert!(!rendered.contains("abandon"), "{rendered}");
     assert!(
@@ -262,12 +275,12 @@ async fn known_mnemonic_derives_published_addresses_end_to_end() {
 
     // BIP86 m/86'/0'/0'/0/0 and BIP44 m/44'/60'/0'/0/0 reference addresses.
     assert_eq!(
-        btc_resp.bitcoin_address,
+        btc_resp.address,
         "bc1p5cyxnuxmeuwuvkwfem96lqzszd02n6xdcjrs20cac6yqjjwudpxqkedrcr"
     );
     assert_eq!(
-        eth_resp.ethereum_address,
-        "0x9858effd232b4033e47d90003d41ec34ecaeda94"
+        eth_resp.address,
+        "0x9858EfFD232B4033E47d90003D41EC34EcaEda94"
     );
 }
 

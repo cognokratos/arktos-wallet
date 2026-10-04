@@ -51,7 +51,9 @@ For deployment details, see [Deployment Guide](./docs/deployment-guide.md).
 ## 📋 Core Features
 
 - ✅ Wallet creation with secure recovery passphrases
-- ✅ Bitcoin & Ethereum address derivation
+- ✅ Bitcoin Taproot addresses (BIP39 + BIP32 + BIP86) on a configurable network (`mainnet`, `testnet`, `signet`, `regtest`)
+- ✅ Ethereum addresses (BIP39 + BIP32, BIP44 path) with EIP-55 checksums and a configured chain ID
+- ✅ Structured, schema-described MCP results and typed error codes
 - ✅ Multi-account management per wallet
 - ✅ Encrypted SQLite database with SQLCipher, versioned migrations and enforced constraints
 - ✅ Stateless MCP `2026-07-28` HTTP endpoint (`server/discover`, no sessions) with API key authentication

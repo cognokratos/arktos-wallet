@@ -1,4 +1,6 @@
+use crate::domain::{BitcoinNetwork, EthereumChainId};
 use crate::keys::MasterKey;
+use crate::wallet_services::ChainConfig;
 use secrecy::{ExposeSecret, SecretString};
 use std::env;
 use std::fmt;
@@ -43,6 +45,8 @@ pub struct Config {
     pub master_key: MasterKey,
     /// `Host` header values accepted on `/mcp` (DNS-rebinding protection).
     pub mcp_allowed_hosts: Vec<String>,
+    /// `BITCOIN_NETWORK` and `ETHEREUM_CHAIN_ID`.
+    pub chains: ChainConfig,
 }
 
 impl fmt::Debug for Config {
@@ -53,6 +57,7 @@ impl fmt::Debug for Config {
             .field("db_path", &self.db_path)
             .field("master_key", &self.master_key)
             .field("mcp_allowed_hosts", &self.mcp_allowed_hosts)
+            .field("chains", &self.chains)
             .finish()
     }
 }
@@ -108,7 +113,40 @@ impl Config {
             db_path: get("DATABASE_PATH").unwrap_or_else(|| DEFAULT_DATABASE_PATH.to_string()),
             master_key,
             mcp_allowed_hosts: parse_allowed_hosts(get("MCP_ALLOWED_HOSTS")),
+            chains: ChainConfig {
+                bitcoin_network: parse_bitcoin_network(get("BITCOIN_NETWORK"))?,
+                ethereum_chain_id: parse_chain_id(get("ETHEREUM_CHAIN_ID"))?,
+            },
         })
+    }
+}
+
+/// `BITCOIN_NETWORK`: exactly one of mainnet/testnet/signet/regtest; unset
+/// means mainnet. Invalid values are rejected, never defaulted.
+fn parse_bitcoin_network(value: Option<String>) -> Result<BitcoinNetwork, ConfigError> {
+    match value {
+        None => Ok(BitcoinNetwork::Mainnet),
+        Some(v) => v.trim().parse().map_err(|()| {
+            ConfigError(
+                "BITCOIN_NETWORK is invalid: expected one of mainnet, testnet, signet, regtest"
+                    .into(),
+            )
+        }),
+    }
+}
+
+/// `ETHEREUM_CHAIN_ID`: a positive integer; unset means 1 (Ethereum mainnet).
+fn parse_chain_id(value: Option<String>) -> Result<EthereumChainId, ConfigError> {
+    match value {
+        None => Ok(EthereumChainId::MAINNET),
+        Some(v) => v
+            .trim()
+            .parse::<u64>()
+            .ok()
+            .and_then(EthereumChainId::new)
+            .ok_or_else(|| {
+                ConfigError("ETHEREUM_CHAIN_ID is invalid: expected a positive integer".into())
+            }),
     }
 }
 
@@ -206,6 +244,46 @@ mod tests {
         let rendered = format!("{:?}", config(&base()).unwrap());
         for secret in ["admin-secret-value", "database-secret-value", MASTER] {
             assert!(!rendered.contains(secret), "{rendered}");
+        }
+    }
+
+    #[test]
+    fn chain_settings_default_to_mainnet() {
+        let config = config(&base()).unwrap();
+        assert_eq!(config.chains, ChainConfig::default());
+        assert_eq!(config.chains.bitcoin_network, BitcoinNetwork::Mainnet);
+        assert_eq!(config.chains.ethereum_chain_id.get(), 1);
+    }
+
+    #[test]
+    fn chain_settings_are_parsed() {
+        let mut vars = base();
+        vars.push(("BITCOIN_NETWORK", "signet"));
+        vars.push(("ETHEREUM_CHAIN_ID", "11155111"));
+        let chains = config(&vars).unwrap().chains;
+        assert_eq!(chains.bitcoin_network, BitcoinNetwork::Signet);
+        assert_eq!(chains.ethereum_chain_id.get(), 11155111);
+    }
+
+    #[test]
+    fn invalid_chain_settings_fail_fast() {
+        for (var, value) in [
+            ("BITCOIN_NETWORK", "bitcoin"),
+            ("BITCOIN_NETWORK", "Mainnet"),
+            ("ETHEREUM_CHAIN_ID", "0"),
+            ("ETHEREUM_CHAIN_ID", "-1"),
+            ("ETHEREUM_CHAIN_ID", "mainnet"),
+        ] {
+            let mut vars = base();
+            vars.push((var, value));
+            let err = config(&vars)
+                .err()
+                .map(|e| e.to_string())
+                .unwrap_or_default();
+            assert!(
+                err.starts_with(&format!("{var} is invalid")),
+                "{var}={value}: {err}"
+            );
         }
     }
 

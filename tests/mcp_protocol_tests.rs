@@ -8,8 +8,13 @@ use arktos_wallet::app::router;
 use arktos_wallet::auth::AppState;
 use arktos_wallet::config::DEFAULT_MCP_ALLOWED_HOSTS;
 use arktos_wallet::database::Database;
+use arktos_wallet::domain::{BitcoinNetwork, Chain, EthereumChainId};
 use arktos_wallet::key_services::KeyServices;
-use arktos_wallet::wallet_services::WalletServices;
+use arktos_wallet::wallet_manager::eip55_checksum;
+use arktos_wallet::wallet_services::{
+    BitcoinAddressResponse, BitcoinAddressType, ChainConfig, CreateWalletResponse,
+    EthereumAddressResponse, WalletServices,
+};
 use http::{HeaderName, HeaderValue};
 use rmcp::model::{CallToolRequestParams, CallToolResult, JsonObject, ProtocolVersion};
 use rmcp::service::RunningService;
@@ -43,13 +48,21 @@ struct TestServer {
 
 impl TestServer {
     async fn start() -> Self {
+        Self::start_with(ChainConfig::default()).await
+    }
+
+    async fn start_with(chains: ChainConfig) -> Self {
         let db_dir = TempDir::new().expect("temp dir");
         let db_path = db_dir.path().join("mcp.db");
         let db = Arc::new(
             Database::new(db_path.to_str().expect("utf-8 path"), "test_cipher_key")
                 .expect("database"),
         );
-        let wallet_services = Arc::new(WalletServices::new(db.clone(), test_keyring().wallet));
+        let wallet_services = Arc::new(WalletServices::new(
+            db.clone(),
+            test_keyring().wallet,
+            chains,
+        ));
         let key_services = Arc::new(KeyServices::new(db.clone(), test_keyring().api_keys));
         let app_state = AppState {
             key_services: key_services.clone(),
@@ -135,13 +148,34 @@ fn text(result: &CallToolResult) -> &str {
         .expect("text content")
 }
 
-/// Extract the `Address="..."` field from a tool's text output.
-fn address(output: &str) -> &str {
-    output
-        .split("Address=\"")
-        .nth(1)
-        .and_then(|rest| rest.split('"').next())
-        .expect("address field")
+/// The structured payload of a successful tool result.
+fn structured(result: &CallToolResult) -> &Value {
+    assert_ne!(
+        result.is_error,
+        Some(true),
+        "unexpected tool error: {result:?}"
+    );
+    result
+        .structured_content
+        .as_ref()
+        .expect("structured content")
+}
+
+/// Typed view of a successful tool result.
+fn typed<T: serde::de::DeserializeOwned>(result: &CallToolResult) -> T {
+    serde_json::from_value(structured(result).clone()).expect("payload matches the typed contract")
+}
+
+/// The `{"code","message"}` object of a tool execution error.
+fn tool_error(result: &CallToolResult) -> Value {
+    assert_eq!(
+        result.is_error,
+        Some(true),
+        "expected a tool error: {result:?}"
+    );
+    assert!(result.structured_content.is_none());
+    let body: Value = serde_json::from_str(text(result)).expect("JSON error body");
+    body["error"].clone()
 }
 
 async fn call(
@@ -319,7 +353,7 @@ async fn ping_tool_returns_pong() {
 }
 
 #[tokio::test]
-async fn wallet_tools_work_end_to_end() {
+async fn wallet_tools_return_structured_results() {
     let server = TestServer::start().await;
     let client = server
         .connect(&server.api_key("wallets").await)
@@ -329,62 +363,279 @@ async fn wallet_tools_work_end_to_end() {
     let created = call(&client, "create_wallet", json!({ "wallet_name": "main" }))
         .await
         .expect("create_wallet");
+    let created: CreateWalletResponse = typed(&created);
+    assert_eq!(created.wallet_name, "main");
+    assert!(created.wallet_id > 0);
     assert!(
-        text(&created).contains("Name=\"main\""),
+        is_rfc3339_utc(&created.created_at),
         "{}",
-        text(&created)
+        created.created_at
     );
 
-    let btc = call(
+    let btc_result = call(
         &client,
         "get_bitcoin_address",
         json!({ "wallet_name": "main" }),
     )
     .await
     .expect("get_bitcoin_address");
-    assert!(text(&btc).contains("Address=\"bc1"), "{}", text(&btc));
+    let btc: BitcoinAddressResponse = typed(&btc_result);
+    assert_eq!(btc.account_index, 0);
+    assert_eq!(btc.chain, Chain::Bitcoin);
+    assert_eq!(btc.network, BitcoinNetwork::Mainnet);
+    assert_eq!(btc.address_type, BitcoinAddressType::P2tr);
+    assert_eq!(btc.derivation_path, "m/86'/0'/0'/0/0");
+    assert!(btc.address.starts_with("bc1p"), "{}", btc.address);
+    assert!(btc.public_key_hex.starts_with("0x0") && btc.public_key_hex.len() == 68);
+    // The text block mirrors the structured payload for clients without
+    // structured-output support.
+    let mirrored: Value = serde_json::from_str(text(&btc_result)).unwrap();
+    assert_eq!(&mirrored, structured(&btc_result));
 
-    let eth = call(
+    let eth_result = call(
         &client,
         "get_ethereum_address",
-        json!({ "wallet_name": "main", "account_index": 0 }),
+        json!({ "wallet_name": "main", "account_index": 3 }),
     )
     .await
     .expect("get_ethereum_address");
-    assert!(text(&eth).contains("0x"), "{}", text(&eth));
+    let eth: EthereumAddressResponse = typed(&eth_result);
+    assert_eq!(eth.account_index, 3);
+    assert_eq!(eth.chain, Chain::Ethereum);
+    assert_eq!(eth.chain_id, 1);
+    assert_eq!(eth.derivation_path, "m/44'/60'/0'/0/3");
+    assert_eq!(eip55_checksum(&eth.address).unwrap(), eth.address, "EIP-55");
 
-    // Derivation is deterministic: asking again returns the same address.
-    let btc_again = call(
+    // Deterministic: the same request returns the same payload.
+    let again = call(
         &client,
         "get_bitcoin_address",
-        json!({ "wallet_name": "main" }),
+        json!({ "wallet_name": "main", "account_index": 0 }),
     )
     .await
-    .expect("get_bitcoin_address");
-    assert_eq!(address(text(&btc)), address(text(&btc_again)));
+    .unwrap();
+    assert_eq!(typed::<BitcoinAddressResponse>(&again), btc);
 }
 
 #[tokio::test]
-async fn service_errors_become_mcp_errors() {
+async fn responses_contain_no_secret_fields() {
+    let server = TestServer::start().await;
+    let client = server
+        .connect(&server.api_key("secrets").await)
+        .await
+        .expect("connect");
+    let payloads = [
+        call(&client, "create_wallet", json!({ "wallet_name": "w" }))
+            .await
+            .unwrap(),
+        call(
+            &client,
+            "get_bitcoin_address",
+            json!({ "wallet_name": "w" }),
+        )
+        .await
+        .unwrap(),
+        call(
+            &client,
+            "get_ethereum_address",
+            json!({ "wallet_name": "w" }),
+        )
+        .await
+        .unwrap(),
+    ];
+    const FORBIDDEN: [&str; 8] = [
+        "mnemonic",
+        "passphrase",
+        "seed",
+        "private_key",
+        "encrypted_passphrase",
+        "encrypted_private_key",
+        "secret_key",
+        "database_key",
+    ];
+    for result in &payloads {
+        let object = structured(result).as_object().expect("object payload");
+        for key in object.keys() {
+            assert!(
+                !FORBIDDEN.iter().any(|f| key.contains(f)),
+                "forbidden field {key} in {object:?}"
+            );
+        }
+    }
+    // Typed decoding with deny_unknown_fields: no field beyond the contract.
+    let _: CreateWalletResponse = typed(&payloads[0]);
+    let _: BitcoinAddressResponse = typed(&payloads[1]);
+    let _: EthereumAddressResponse = typed(&payloads[2]);
+}
+
+#[tokio::test]
+async fn tools_publish_input_and_output_schemas() {
+    let server = TestServer::start().await;
+    let client = server
+        .connect(&server.api_key("schemas").await)
+        .await
+        .expect("connect");
+    let tools = client.list_all_tools().await.expect("tools/list");
+    let tool = |name: &str| tools.iter().find(|t| t.name == name).expect(name).clone();
+
+    for (name, required) in [
+        (
+            "create_wallet",
+            vec!["wallet_id", "wallet_name", "created_at"],
+        ),
+        (
+            "get_bitcoin_address",
+            vec![
+                "wallet_name",
+                "account_index",
+                "chain",
+                "network",
+                "address_type",
+                "derivation_path",
+                "address",
+                "public_key_hex",
+                "created_at",
+            ],
+        ),
+        (
+            "get_ethereum_address",
+            vec![
+                "wallet_name",
+                "account_index",
+                "chain",
+                "chain_id",
+                "derivation_path",
+                "address",
+                "public_key_hex",
+                "created_at",
+            ],
+        ),
+    ] {
+        let schema =
+            serde_json::to_value(tool(name).output_schema.expect("output schema")).unwrap();
+        let mut listed: Vec<&str> = schema["required"]
+            .as_array()
+            .expect("required list")
+            .iter()
+            .map(|v| v.as_str().unwrap())
+            .collect();
+        listed.sort_unstable();
+        let mut expected = required.clone();
+        expected.sort_unstable();
+        assert_eq!(listed, expected, "{name}");
+    }
+
+    let input = serde_json::to_value(&tool("get_bitcoin_address").input_schema).unwrap();
+    let index = &input["properties"]["account_index"];
+    assert_eq!(index["maximum"], 2147483647, "{index}");
+    assert!(
+        index["description"]
+            .as_str()
+            .unwrap()
+            .contains("Defaults to 0")
+    );
+    assert_eq!(input["required"], json!(["wallet_name"]));
+}
+
+#[tokio::test]
+async fn domain_errors_are_tool_errors_with_codes() {
     let server = TestServer::start().await;
     let client = server
         .connect(&server.api_key("errors").await)
         .await
         .expect("connect");
 
-    let error = call(
+    let missing = call(
         &client,
         "get_bitcoin_address",
         json!({ "wallet_name": "does-not-exist" }),
     )
     .await
-    .expect_err("unknown wallet must fail");
+    .expect("tool errors are results, not protocol errors");
+    assert_eq!(tool_error(&missing)["code"], "not_found");
 
-    let message = error.to_string();
-    assert!(
-        message.contains("Failed to get Bitcoin address"),
-        "{message}"
+    let invalid = call(
+        &client,
+        "create_wallet",
+        json!({ "wallet_name": " padded " }),
+    )
+    .await
+    .unwrap();
+    let error = tool_error(&invalid);
+    assert_eq!(error["code"], "invalid_argument");
+    assert_eq!(
+        error["message"],
+        "wallet_name must not start or end with whitespace"
     );
+
+    call(&client, "create_wallet", json!({ "wallet_name": "dup" }))
+        .await
+        .unwrap();
+    let dup = call(&client, "create_wallet", json!({ "wallet_name": "dup" }))
+        .await
+        .unwrap();
+    assert_eq!(tool_error(&dup)["code"], "already_exists");
+
+    let out_of_range = call(
+        &client,
+        "get_ethereum_address",
+        json!({ "wallet_name": "dup", "account_index": 2147483648u64 }),
+    )
+    .await
+    .unwrap();
+    assert_eq!(tool_error(&out_of_range)["code"], "invalid_argument");
+}
+
+#[tokio::test]
+async fn chain_configuration_is_reflected_in_results() {
+    let server = TestServer::start_with(ChainConfig {
+        bitcoin_network: BitcoinNetwork::Regtest,
+        ethereum_chain_id: EthereumChainId::new(11155111).unwrap(),
+    })
+    .await;
+    let client = server
+        .connect(&server.api_key("regtest").await)
+        .await
+        .expect("connect");
+    call(&client, "create_wallet", json!({ "wallet_name": "w" }))
+        .await
+        .unwrap();
+
+    let btc: BitcoinAddressResponse = typed(
+        &call(
+            &client,
+            "get_bitcoin_address",
+            json!({ "wallet_name": "w" }),
+        )
+        .await
+        .unwrap(),
+    );
+    assert_eq!(btc.network, BitcoinNetwork::Regtest);
+    assert_eq!(btc.derivation_path, "m/86'/1'/0'/0/0");
+    assert!(btc.address.starts_with("bcrt1p"), "{}", btc.address);
+
+    let eth: EthereumAddressResponse = typed(
+        &call(
+            &client,
+            "get_ethereum_address",
+            json!({ "wallet_name": "w" }),
+        )
+        .await
+        .unwrap(),
+    );
+    assert_eq!(eth.chain_id, 11155111);
+}
+
+fn is_rfc3339_utc(ts: &str) -> bool {
+    let b = ts.as_bytes();
+    b.len() == 24
+        && b[4] == b'-'
+        && b[7] == b'-'
+        && b[10] == b'T'
+        && b[13] == b':'
+        && b[16] == b':'
+        && b[19] == b'.'
+        && b[23] == b'Z'
 }
 
 // ---------------------------------------------------------------------------
@@ -496,10 +747,8 @@ async fn independent_requests_need_no_session() {
     assert_eq!(b.status(), 200);
     assert!(b.headers().get("mcp-session-id").is_none());
     let body: Value = b.json().await.expect("json");
-    assert!(
-        body["result"]["content"][0]["text"]
-            .as_str()
-            .is_some_and(|t| t.contains("Name=\"stateless\"")),
+    assert_eq!(
+        body["result"]["structuredContent"]["wallet_name"], "stateless",
         "{body}"
     );
 
@@ -515,12 +764,14 @@ async fn independent_requests_need_no_session() {
     .await;
     assert_eq!(c.status(), 200);
     let body: Value = c.json().await.expect("json");
+    let payload = &body["result"]["structuredContent"];
     assert!(
-        body["result"]["content"][0]["text"]
+        payload["address"]
             .as_str()
-            .is_some_and(|t| t.contains("Address=\"0x")),
+            .is_some_and(|a| a.starts_with("0x")),
         "{body}"
     );
+    assert_eq!(payload["chain_id"], 1);
 }
 
 // ---------------------------------------------------------------------------
@@ -544,13 +795,14 @@ async fn wallets_are_isolated_per_api_key() {
         .expect("alice creates wallet");
 
     // Bob cannot use Alice's wallet...
-    call(
+    let denied = call(
         &bob,
         "get_bitcoin_address",
         json!({ "wallet_name": "savings" }),
     )
     .await
-    .expect_err("bob must not see alice's wallet");
+    .unwrap();
+    assert_eq!(tool_error(&denied)["code"], "not_found");
 
     // ...and a wallet with the same name under Bob's key is a different wallet.
     call(&bob, "create_wallet", json!({ "wallet_name": "savings" }))
@@ -570,7 +822,10 @@ async fn wallets_are_isolated_per_api_key() {
     )
     .await
     .expect("bob address");
-    assert_ne!(address(text(&alice_addr)), address(text(&bob_addr)));
+    assert_ne!(
+        structured(&alice_addr)["address"],
+        structured(&bob_addr)["address"]
+    );
 }
 
 // ---------------------------------------------------------------------------

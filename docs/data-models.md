@@ -6,7 +6,8 @@ This document describes the data models used within the Arktos Wallet applicatio
 
 Arktos stores data in a single local **SQLite** database encrypted with
 **SQLCipher** (`rusqlite`, `bundled-sqlcipher-vendored-openssl`). The schema is
-defined by versioned SQL migrations in [`migrations/`](../migrations) and applied
+defined by versioned SQL migrations in [`migrations/`](../migrations)
+(`V1` initial schema, `V2` account network) and applied
 automatically at startup (see
 [Architecture — Data Architecture](./architecture.md#4-data-architecture)).
 All tables are `STRICT`, foreign keys are enforced, and timestamps are UTC
@@ -51,14 +52,18 @@ re-derived from the wallet's recovery phrase when needed.
 | `id` | INTEGER | PRIMARY KEY | |
 | `wallet_id` | INTEGER | NOT NULL, FK → `wallets.id` (RESTRICT) | |
 | `chain_type` | TEXT | `Bitcoin` or `Ethereum` | |
+| `network` | TEXT | Bitcoin: `mainnet`/`testnet`/`signet`/`regtest`; Ethereum: `evm` | Address space the account was derived for |
 | `account_index` | INTEGER | 0 … 2³¹−1 (non-hardened) | BIP32 child index |
-| `derivation_path` | TEXT | NOT NULL, must equal the canonical path | `m/86'/0'/0'/0/{index}` (Bitcoin, Taproot) or `m/44'/60'/0'/0/{index}` (Ethereum) |
+| `derivation_path` | TEXT | NOT NULL, must equal the canonical path | BIP86 `m/86'/0'/0'/0/{index}` (Bitcoin mainnet), `m/86'/1'/0'/0/{index}` (Bitcoin test networks) or BIP44 `m/44'/60'/0'/0/{index}` (Ethereum) |
 | `public_key` | TEXT | NOT NULL | Compressed SEC1 public key, `0x`-hex |
-| `address` | TEXT | NOT NULL | Bitcoin Taproot (`bc1p…`) or Ethereum (`0x…`, lowercase) address |
+| `address` | TEXT | NOT NULL; Ethereum must be lowercase | Bitcoin Taproot (`bc1p…`/`tb1p…`/`bcrt1p…`) or Ethereum (`0x…`, canonical lowercase; EIP-55 checksum applied in responses) |
 | `created_at` | TEXT | NOT NULL, default now | |
 
-`UNIQUE (wallet_id, chain_type, account_index)`: each account is derived and
-stored once; concurrent first requests return the same row.
+`UNIQUE (wallet_id, chain_type, network, account_index)`: each account is
+derived and stored once per network; concurrent first requests return the same
+row, and changing `BITCOIN_NETWORK` never returns an account of another network.
+The Ethereum chain ID is not stored (the address is chain-independent); it is
+taken from configuration when responding.
 
 ## Relationships
 

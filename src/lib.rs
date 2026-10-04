@@ -5,6 +5,7 @@ pub mod auth;
 pub mod config;
 pub mod crypto;
 pub mod database;
+pub mod domain;
 pub mod error;
 pub mod key_services;
 pub mod key_store;

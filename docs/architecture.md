@@ -124,10 +124,11 @@ wallets  (id, key_id → api_keys, name, encrypted_passphrase, created_at)
          UNIQUE (key_id, name)                  one wallet name per owner
    │ 1
    │ *  FK ON DELETE RESTRICT
-accounts (id, wallet_id → wallets, chain_type, account_index, derivation_path,
-          public_key, address, created_at)
-         UNIQUE (wallet_id, chain_type, account_index)
-         CHECK  derivation_path = canonical path for chain_type + account_index
+accounts (id, wallet_id → wallets, chain_type, network, account_index,
+          derivation_path, public_key, address, created_at)
+         UNIQUE (wallet_id, chain_type, network, account_index)
+         CHECK  derivation_path = canonical path for chain + network + index
+         CHECK  Ethereum addresses stored in lowercase
 ```
 
 All tables are `STRICT`. The only secret column is `wallets.encrypted_passphrase`;
@@ -260,25 +261,51 @@ Tool definitions are generated at compile time from `#[tool]` attributes, so
 
 ### MCP Tools (Core API)
 
-Wallet functionality is exposed exclusively via MCP tools:
+| Tool | Creates state | Result (structured) |
+|------|---------------|---------------------|
+| `ping` | no | text `pong` |
+| `create_wallet` | yes (wallet) | `wallet_id`, `wallet_name`, `created_at` |
+| `get_bitcoin_address` | on first use (account) | `network`, `address_type` (`p2tr`), BIP86 `derivation_path`, `address`, `public_key_hex`, … |
+| `get_ethereum_address` | on first use (account) | `chain_id`, BIP44 `derivation_path`, EIP-55 `address`, `public_key_hex`, … |
 
-0. **`ping`**
-   - Liveness check of the MCP tool router; returns `pong`
+Input and output JSON Schemas are generated from the Rust request/response
+types in `wallet_services.rs` and published by `tools/list`; there is no
+hand-written copy. See [API Contracts](./api-contracts.md#mcp-tools) for examples.
 
-1. **`create_wallet`**
-   - Creates new non-custodial wallet
-   - Generates BIP39 recovery passphrase
-   - Returns wallet ID for future operations
+### Domain Model
 
-2. **`get_bitcoin_address`**
-   - Derives Bitcoin address for wallet
-   - Uses BIP32 HD wallet standard
-   - Path: `m/44'/0'/0'/0/{account_index}`
+| Concept | Type | Values / representation |
+|---------|------|-------------------------|
+| Chain | `Chain` | `bitcoin`, `ethereum` |
+| Bitcoin network | `BitcoinNetwork` (`BITCOIN_NETWORK`) | `mainnet` (default), `testnet`, `signet`, `regtest`; invalid values fail at startup |
+| Ethereum chain ID | `EthereumChainId` (`ETHEREUM_CHAIN_ID`) | positive EIP-155 ID, default `1`; reported, not used for derivation |
+| Address space | `Network` | `Bitcoin(BitcoinNetwork)` or `Ethereum`; part of an account's stored identity |
+| Index | `DerivationIndex` | non-hardened BIP32 address index `0 … 2^31-1` (`account_index` in the API) |
+| Names | `WalletName`, `ApiKeyName` | validated once at the boundary |
 
-3. **`get_ethereum_address`**
-   - Derives Ethereum address for wallet
-   - Uses Ethereum HD wallet derivation
-   - Path: `m/44'/60'/0'/0/{account_index}`
+Derivation (one function, `Network::derivation_path`):
+
+| Network | Path | Standards |
+|---------|------|-----------|
+| Bitcoin mainnet | `m/86'/0'/0'/0/{i}` | BIP39 → BIP32 → BIP86 Taproot (P2TR) |
+| Bitcoin testnet/signet/regtest | `m/86'/1'/0'/0/{i}` | BIP86, coin type 1' |
+| Ethereum | `m/44'/60'/0'/0/{i}` | BIP39 → BIP32 → BIP44 path; address formatted with EIP-55 |
+
+Ethereum addresses are stored in canonical lowercase and checksummed (EIP-55)
+when returned. Ethereum accounts use the single network value `evm`, because
+the same address is valid on every EVM chain.
+
+### Error Model
+
+`AppError` distinguishes client errors from server faults:
+
+| Error | MCP result |
+|-------|------------|
+| `InvalidArgument`, `WalletNotFound`, `WalletAlreadyExists` | tool execution error: `isError: true`, text `{"error":{"code":"invalid_argument"/"not_found"/"already_exists","message":…}}` |
+| `Storage`, `Crypto`, `DerivationFailed`, `Internal` | JSON-RPC `-32603 "internal error"`, details only in logs |
+
+Authentication is enforced before MCP (HTTP 401/503). The admin API uses the
+same `{"error":{"code","message"}}` body with HTTP status codes.
 
 ### Design Rationale
 

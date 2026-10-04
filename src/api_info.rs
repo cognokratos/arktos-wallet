@@ -5,10 +5,8 @@
 //! defined by the MCP specification, not mirrored here.
 
 use crate::auth::AppState;
-use crate::auth::{CreateApiKeyRequest, ListApiKeysResponse, NewApiKeyResponse};
-use crate::wallet_services::{
-    BitcoinAddressResponse, CreateWalletRequest, CreateWalletResponse, EthereumAddressResponse,
-    GetBitcoinAddressRequest, GetEthereumAddressRequest,
+use crate::auth::{
+    CreateApiKeyRequest, ErrorBody, ErrorDetail, ListApiKeysResponse, NewApiKeyResponse,
 };
 use axum::extract::State;
 use axum::response::IntoResponse;
@@ -77,7 +75,10 @@ specification, not by this document.
 * Only protocol version `2026-07-28` is supported; other versions are rejected with \
 JSON-RPC error `-32022`.
 * Arktos requires a valid client API key in `X-API-KEY`; wallets are scoped to that key.
-* Tools: `ping`, `create_wallet`, `get_bitcoin_address`, `get_ethereum_address`.";
+* Tools: `ping`, `create_wallet`, `get_bitcoin_address`, `get_ethereum_address`. \
+Their input and output JSON Schemas are published by `tools/list`; wallet tools return \
+`structuredContent`, and domain errors are tool results with `isError: true` and a JSON \
+body `{\"error\":{\"code\",\"message\"}}`.";
 
 const CLIENT_META: &str = r#"{
   "io.modelcontextprotocol/protocolVersion": "2026-07-28",
@@ -260,15 +261,12 @@ impl Modify for McpPath {
     ),
     components(
         schemas(
-            CreateWalletRequest,
-            CreateWalletResponse,
-            GetBitcoinAddressRequest,
-            BitcoinAddressResponse,
-            GetEthereumAddressRequest,
-            EthereumAddressResponse,
             CreateApiKeyRequest,
             NewApiKeyResponse,
             ListApiKeysResponse,
+            crate::api_key::ApiKey,
+            ErrorBody,
+            ErrorDetail,
         )
     ),
     tags(

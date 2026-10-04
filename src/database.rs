@@ -22,7 +22,10 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 /// Versioned schema migrations, applied in order at startup.
-const MIGRATIONS: &[M<'static>] = &[M::up(include_str!("../migrations/V1__initial_schema.sql"))];
+const MIGRATIONS: &[M<'static>] = &[
+    M::up(include_str!("../migrations/V1__initial_schema.sql")),
+    M::up(include_str!("../migrations/V2__account_network.sql")).foreign_key_check(),
+];
 
 /// How long a statement waits for a lock held by another connection (e.g. an
 /// operator's `sqlcipher` shell or a backup) before failing with "busy".
