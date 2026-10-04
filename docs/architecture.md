@@ -516,16 +516,12 @@ Arktos architecture supports compliance requirements for various regulations:
 
 See [Regional Compliance](./regional-compliance.md) for detailed patterns and implementation guidance.
 
-## 10. Source Tree
-
-For detailed analysis of the project's file and directory structure, refer to the [Source Tree Analysis](./source-tree-analysis.md).
-
-## 11. Development & Deployment
+## 10. Development & Deployment
 
 - **Development**: Instructions for setting up the local environment, building, and running the application can be found in the [Development Guide](./development-guide.md).
 - **Deployment**: Complete containerization guide, environment configuration, and production deployment patterns are documented in the [Deployment Guide](./deployment-guide.md).
 
-## 12. Design Decisions & Rationale
+## 11. Design Decisions & Rationale
 
 ### Why Monolithic Architecture?
 

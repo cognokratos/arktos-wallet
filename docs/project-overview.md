@@ -151,8 +151,7 @@ See [Architecture Document](./architecture.md#6-security-architecture) for detai
 
 1. Read this [Project Overview](./project-overview.md) (you're reading it!)
 2. Review [Architecture](./architecture.md) for system design
-3. Check [Source Tree Analysis](./source-tree-analysis.md) for project structure
-4. Explore code in `src/` directory
+3. Explore code in `src/` directory
 
 ### For Local Development
 
@@ -244,7 +243,6 @@ For detailed information on specific topics:
 | Topic | Document |
 |-------|----------|
 | **Architecture & Design** | [Architecture](./architecture.md) |
-| **Project Structure** | [Source Tree Analysis](./source-tree-analysis.md) |
 | **API Specification** | [API Contracts](./api-contracts.md) |
 | **Database Schema** | [Data Models](./data-models.md) |
 | **Local Development** | [Development Guide](./development-guide.md) |
@@ -272,7 +270,7 @@ This approach provides maximum control and flexibility while demonstrating best 
 ## Next Steps
 
 1. **Explore the Architecture**: Read [Architecture Document](./architecture.md)
-2. **Review the Code**: Check `src/` directory and [Source Tree](./source-tree-analysis.md)
+2. **Review the Code**: Check the `src/` directory
 3. **Set Up Development**: Follow [Development Guide](./development-guide.md)
 4. **Plan Customizations**: Review [Customization Guide](./customization-guide.md) for extension patterns
 5. **Check Compliance**: Read [Regional Compliance](./regional-compliance.md) for your requirements
@@ -284,5 +282,4 @@ This approach provides maximum control and flexibility while demonstrating best 
 ## Key Documentation
 
 *   [Architecture](./architecture.md)
-*   [Source Tree Analysis](./source-tree-analysis.md)
 *   [Development Guide](./development-guide.md)

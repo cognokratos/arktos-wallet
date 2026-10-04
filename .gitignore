@@ -9,3 +9,13 @@ examples/http-client.private.env.json
 # OS
 .DS_Store
 Thumbs.db
+
+# BMAD local development tooling
+_bmad/
+_bmad-output/
+
+# BMAD-generated AI assistant integrations
+.codex/
+.gemini/
+.qwen/
+.github/agents/

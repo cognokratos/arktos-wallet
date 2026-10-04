@@ -66,7 +66,6 @@ For deployment details, see [Deployment Guide](./docs/deployment-guide.md).
 ### Project Overview
 - **[Project Overview](./docs/project-overview.md)** - High-level introduction and technology stack
 - **[Architecture](./docs/architecture.md)** - System design, patterns, and technical decisions
-- **[Source Tree Analysis](./docs/source-tree-analysis.md)** - Project structure and module organization
 
 ### Development & Deployment
 - **[Development Guide](./docs/development-guide.md)** - Setup, building, testing, and local development

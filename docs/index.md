@@ -16,7 +16,6 @@ This document is the master index for all documentation related to the Arktos Wa
 ### 🏗️ Architecture & Design
 
 - **[Architecture](./architecture.md)** - Complete system design, patterns, technology stack decisions, and API design
-- **[Source Tree Analysis](./source-tree-analysis.md)** - Project structure, module organization, and file layout
 - **[Data Models](./data-models.md)** - Database schema, wallet structure, account management, and data relationships
 
 ### 🔌 API & Integration
@@ -62,8 +61,7 @@ This document is the master index for all documentation related to the Arktos Wa
 
 ### I want to set up development environment
 1. Read [Development Guide](./development-guide.md)
-2. Check [Source Tree Analysis](./source-tree-analysis.md) for project structure
-3. Review [Data Models](./data-models.md) for database understanding
+2. Review [Data Models](./data-models.md) for database understanding
 
 ### I want to integrate with Arktos API
 1. Start with [API Contracts](./api-contracts.md)
