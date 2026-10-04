@@ -2,6 +2,6 @@
 # Bump deliberately (Dependabot proposes updates) and keep the `rust:<version>`
 # base image in the Dockerfile in sync.
 [toolchain]
-channel = "1.97.1"
+channel = "1.99.0"
 components = ["rustfmt", "clippy"]
 profile = "minimal"
