@@ -1,84 +1,91 @@
-use crate::database::Database;
-use anyhow::{Context, Result};
-use rusqlite::{Connection, OptionalExtension, params};
-use std::sync::{Arc, Mutex};
+//! API-key persistence. Only HMAC hashes of API keys are stored.
+
+use crate::database::{Database, StoreError};
+use rusqlite::{OptionalExtension, params};
+use std::sync::Arc;
 
 pub struct KeyStore {
-    conn: Arc<Mutex<Connection>>,
+    db: Arc<Database>,
 }
 
 impl KeyStore {
     pub fn new(db: Arc<Database>) -> Self {
-        Self {
-            conn: db.conn.clone(),
-        }
+        Self { db }
     }
 
-    /// Create a new API key for a wallet
-    pub fn create_api_key(&self, key_name: &str, key_hash: &str) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
-        conn.execute(
-            "INSERT INTO api_keys (key_hash, key_name) VALUES (?1, ?2)",
-            params![key_hash, key_name],
-        )
-        .context("Failed to create API key")?;
-        Ok(())
+    /// Store a new API-key hash and return its id.
+    pub async fn create_api_key(&self, key_name: &str, key_hash: &str) -> Result<i64, StoreError> {
+        let (key_name, key_hash) = (key_name.to_owned(), key_hash.to_owned());
+        self.db
+            .write(move |tx| {
+                Ok(tx.query_row(
+                    "INSERT INTO api_keys (key_hash, key_name) VALUES (?1, ?2) RETURNING id",
+                    params![key_hash, key_name],
+                    |row| row.get(0),
+                )?)
+            })
+            .await
     }
 
-    /// Rotate an API key by updating its hash
-    pub fn rotate_api_key(&self, key_id: i64, new_key_hash: &str) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
-        conn.execute(
-            "UPDATE api_keys SET key_hash = ?1, is_revoked = 0 WHERE id = ?2",
-            params![new_key_hash, key_id],
-        )
-        .context("Failed to rotate API key")?;
-        Ok(())
+    /// Replace a key's hash and un-revoke it. Returns `false` if the id is unknown.
+    pub async fn rotate_api_key(
+        &self,
+        key_id: i64,
+        new_key_hash: &str,
+    ) -> Result<bool, StoreError> {
+        let new_key_hash = new_key_hash.to_owned();
+        self.db
+            .write(move |tx| {
+                Ok(tx.execute(
+                    "UPDATE api_keys SET key_hash = ?1, is_revoked = 0 WHERE id = ?2",
+                    params![new_key_hash, key_id],
+                )? == 1)
+            })
+            .await
     }
 
-    /// List all API keys
-    pub fn list_api_keys(&self) -> Result<Vec<(i64, String, bool)>> {
-        let conn = self.conn.lock().unwrap();
-        let mut stmt = conn
-            .prepare("SELECT id, key_name, is_revoked FROM api_keys")
-            .context("Failed to prepare LIST_API_KEYS statement")?;
-        let api_keys = stmt
-            .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
-            .context("Failed to query API keys")?
-            .collect::<Result<Vec<(i64, String, bool)>, _>>()
-            .context("Failed to collect API keys")?;
-        Ok(api_keys)
+    /// All API keys as `(id, name, is_revoked)`.
+    pub async fn list_api_keys(&self) -> Result<Vec<(i64, String, bool)>, StoreError> {
+        self.db
+            .read(|conn| {
+                let mut stmt =
+                    conn.prepare("SELECT id, key_name, is_revoked FROM api_keys ORDER BY id")?;
+                let keys = stmt
+                    .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
+                Ok(keys)
+            })
+            .await
     }
 
-    /// Validate an API key and return wallet_id and client_name if valid
-    pub fn validate_api_key(&self, key_hash: &str) -> Result<Option<(i64, String)>> {
-        let conn = self.conn.lock().unwrap();
-
-        let mut stmt = conn
-            .prepare(
-                "SELECT id, key_name FROM api_keys
-                 WHERE key_hash = ?1 AND is_revoked = 0",
-            )
-            .context("Failed to prepare VALIDATE_API_KEY statement")?;
-
-        let result = stmt
-            .query_row(params![key_hash], |row| Ok((row.get(0)?, row.get(1)?)))
-            .optional()
-            .context("Failed to query API key")?;
-
-        Ok(result)
+    /// `(id, name)` of the non-revoked key with this hash.
+    pub async fn validate_api_key(
+        &self,
+        key_hash: &str,
+    ) -> Result<Option<(i64, String)>, StoreError> {
+        let key_hash = key_hash.to_owned();
+        self.db
+            .read(move |conn| {
+                Ok(conn
+                    .query_row(
+                        "SELECT id, key_name FROM api_keys WHERE key_hash = ?1 AND is_revoked = 0",
+                        params![key_hash],
+                        |row| Ok((row.get(0)?, row.get(1)?)),
+                    )
+                    .optional()?)
+            })
+            .await
     }
 
-    /// Revoke an API key
-    pub fn revoke_api_key(&self, key_id: i64) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
-
-        conn.execute(
-            "UPDATE api_keys SET is_revoked = 1 WHERE id = ?1",
-            params![key_id],
-        )
-        .context("Failed to revoke API key")?;
-
-        Ok(())
+    /// Revoke a key. Returns `false` if the id is unknown.
+    pub async fn revoke_api_key(&self, key_id: i64) -> Result<bool, StoreError> {
+        self.db
+            .write(move |tx| {
+                Ok(tx.execute(
+                    "UPDATE api_keys SET is_revoked = 1 WHERE id = ?1",
+                    params![key_id],
+                )? == 1)
+            })
+            .await
     }
 }

@@ -24,7 +24,6 @@ CHANGELOG.md
 
 # Test artifacts
 .cargo/
-Cargo.lock
 
 # CI/CD
 .github/

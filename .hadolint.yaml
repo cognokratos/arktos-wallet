@@ -1,0 +1,6 @@
+# Hadolint configuration (used locally via `make docker-lint` and in CI).
+failure-threshold: warning
+ignored:
+  # Pinning Debian package versions breaks builds whenever the archive moves on;
+  # the base image tag is pinned instead.
+  - DL3008

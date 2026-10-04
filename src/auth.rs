@@ -1,4 +1,6 @@
 use crate::api_key::ApiKey;
+use crate::database::{Database, StoreError};
+use crate::domain::ApiKeyName;
 use crate::key_services::KeyServices;
 use axum::Json;
 use axum::body::Body;
@@ -6,14 +8,88 @@ use axum::extract::{Path, State};
 use axum::http::{Request, StatusCode};
 use axum::middleware::Next;
 use axum::response::IntoResponse;
+use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use subtle::ConstantTimeEq;
 use utoipa::ToSchema;
 
 #[derive(Clone)]
 pub struct AppState {
     pub key_services: Arc<KeyServices>,
-    pub admin_api_key: String,
+    pub admin_api_key: Arc<SecretString>,
+    /// Used by the readiness probe.
+    pub database: Arc<Database>,
+}
+
+/// Admin API error body (same shape as MCP tool errors).
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ErrorBody {
+    pub error: ErrorDetail,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ErrorDetail {
+    /// `invalid_argument`, `not_found`, `unavailable` or `internal`.
+    pub code: String,
+    pub message: String,
+}
+
+type HandlerError = (StatusCode, Json<ErrorBody>);
+
+fn error(status: StatusCode, code: &str, message: impl Into<String>) -> HandlerError {
+    (
+        status,
+        Json(ErrorBody {
+            error: ErrorDetail {
+                code: code.into(),
+                message: message.into(),
+            },
+        }),
+    )
+}
+
+/// Map a persistence failure to a safe HTTP error, logging the details.
+fn store_failure(action: &'static str, e: &StoreError) -> HandlerError {
+    tracing::warn!(error = %e, "{action} failed");
+    match e {
+        StoreError::Unavailable(_) => error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "unavailable",
+            "database unavailable",
+        ),
+        _ => error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "internal",
+            "internal error",
+        ),
+    }
+}
+
+fn internal_failure(action: &'static str, e: &anyhow::Error) -> HandlerError {
+    match e.downcast_ref::<StoreError>() {
+        Some(store) => store_failure(action, store),
+        None => {
+            tracing::warn!(error = %e, "{action} failed");
+            error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "internal",
+                "internal error",
+            )
+        }
+    }
+}
+
+fn unknown_key() -> HandlerError {
+    error(StatusCode::NOT_FOUND, "not_found", "API key not found")
+}
+
+/// Constant-time comparison of a presented admin key (length is not hidden).
+fn is_admin_key(presented: &str, expected: &SecretString) -> bool {
+    presented
+        .as_bytes()
+        .ct_eq(expected.expose_secret().as_bytes())
+        .into()
 }
 
 pub async fn admin_auth(
@@ -22,7 +98,7 @@ pub async fn admin_auth(
     next: Next,
 ) -> impl IntoResponse {
     if let Some(api_key) = ApiKey::extract(req.headers()) {
-        if api_key == state.admin_api_key {
+        if is_admin_key(&api_key, &state.admin_api_key) {
             // Proceed to the next middleware/handler
             next.run(req).await
         } else {
@@ -47,12 +123,13 @@ pub async fn api_key_auth(
     next: Next,
 ) -> impl IntoResponse {
     if let Some(api_key) = ApiKey::extract(req.headers()) {
-        if let Ok(api_key) = state.key_services.validate(&api_key).await {
-            // Proceed to the next middleware/handler
-            req.extensions_mut().insert(api_key);
-            next.run(req).await
-        } else {
-            (StatusCode::UNAUTHORIZED, "Unauthorized: Invalid API key").into_response()
+        match state.key_services.lookup(&api_key).await {
+            Ok(Some(api_key)) => {
+                req.extensions_mut().insert(api_key);
+                next.run(req).await
+            }
+            Ok(None) => (StatusCode::UNAUTHORIZED, "Unauthorized: Invalid API key").into_response(),
+            Err(error) => store_failure("API key lookup", &error).into_response(),
         }
     } else {
         (
@@ -65,6 +142,8 @@ pub async fn api_key_auth(
 
 #[derive(Deserialize, ToSchema)]
 pub struct CreateApiKeyRequest {
+    /// Label for the key: 1-255 characters, no leading/trailing whitespace,
+    /// no control characters.
     pub name: String,
 }
 
@@ -81,16 +160,30 @@ pub struct NewApiKeyResponse {
     ),
     request_body = CreateApiKeyRequest,
     responses(
-        (status = 200, description = "API key created", body = NewApiKeyResponse)
+        (status = 200, description = "API key created (shown only once)", body = NewApiKeyResponse),
+        (status = 400, description = "Invalid key name", body = ErrorBody),
+        (status = 401, description = "Missing or invalid admin key"),
+        (status = 503, description = "Database unavailable", body = ErrorBody)
     ),
     tag = "admin"
 )]
 pub async fn create_api_key(
     State(state): State<AppState>,
     Json(payload): Json<CreateApiKeyRequest>,
-) -> Json<NewApiKeyResponse> {
-    let api_key = state.key_services.create(&payload.name).await.unwrap();
-    Json(NewApiKeyResponse { api_key })
+) -> Result<Json<NewApiKeyResponse>, HandlerError> {
+    let name = ApiKeyName::parse(&payload.name).map_err(|e| {
+        error(
+            StatusCode::BAD_REQUEST,
+            "invalid_argument",
+            format!("name {e}"),
+        )
+    })?;
+    let api_key = state
+        .key_services
+        .create(name.as_str())
+        .await
+        .map_err(|e| internal_failure("create API key", &e))?;
+    Ok(Json(NewApiKeyResponse { api_key }))
 }
 
 #[utoipa::path(
@@ -100,18 +193,24 @@ pub async fn create_api_key(
         ("X-API-KEY" = String, Header, description = "Admin API key for authentication")
     ),
     responses(
-        (status = 200, description = "API key rotated", body = NewApiKeyResponse)
+        (status = 200, description = "API key rotated; the old key stops working", body = NewApiKeyResponse),
+        (status = 401, description = "Missing or invalid admin key"),
+        (status = 404, description = "Unknown API key id", body = ErrorBody),
+        (status = 503, description = "Database unavailable", body = ErrorBody)
     ),
     tag = "admin"
 )]
 pub async fn rotate_api_key(
     State(state): State<AppState>,
     Path(id): Path<i64>,
-) -> Json<NewApiKeyResponse> {
-    let new_api_key = state.key_services.rotate(id).await.unwrap();
-    Json(NewApiKeyResponse {
-        api_key: new_api_key,
-    })
+) -> Result<Json<NewApiKeyResponse>, HandlerError> {
+    let api_key = state
+        .key_services
+        .rotate(id)
+        .await
+        .map_err(|e| internal_failure("rotate API key", &e))?
+        .ok_or_else(unknown_key)?;
+    Ok(Json(NewApiKeyResponse { api_key }))
 }
 
 #[derive(Serialize, ToSchema)]
@@ -126,13 +225,21 @@ pub struct ListApiKeysResponse {
         ("X-API-KEY" = String, Header, description = "Admin API key for authentication")
     ),
     responses(
-        (status = 200, description = "List of API keys", body = ListApiKeysResponse)
+        (status = 200, description = "List of API keys (no secrets)", body = ListApiKeysResponse),
+        (status = 401, description = "Missing or invalid admin key"),
+        (status = 503, description = "Database unavailable", body = ErrorBody)
     ),
     tag = "admin"
 )]
-pub async fn list_api_keys(State(state): State<AppState>) -> Json<ListApiKeysResponse> {
-    let api_keys = state.key_services.list().await.unwrap(); // Replace with actual fetching logic
-    Json(ListApiKeysResponse { api_keys })
+pub async fn list_api_keys(
+    State(state): State<AppState>,
+) -> Result<Json<ListApiKeysResponse>, HandlerError> {
+    let api_keys = state
+        .key_services
+        .list()
+        .await
+        .map_err(|e| store_failure("list API keys", &e))?;
+    Ok(Json(ListApiKeysResponse { api_keys }))
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -147,16 +254,27 @@ pub struct RevokeApiKeyRequest {
         ("X-API-KEY" = String, Header, description = "Admin API key for authentication")
     ),
     responses(
-        (status = 200, description = "API key revoked")
+        (status = 200, description = "API key revoked", content_type = "text/plain"),
+        (status = 401, description = "Missing or invalid admin key"),
+        (status = 404, description = "Unknown API key id", body = ErrorBody),
+        (status = 503, description = "Database unavailable", body = ErrorBody)
     ),
     tag = "admin"
 )]
 pub async fn revoke_api_key(
     State(state): State<AppState>,
     Path(id): Path<i64>,
-) -> impl IntoResponse {
-    state.key_services.revoke(id).await.unwrap();
-    (StatusCode::OK, "API key revoked").into_response()
+) -> Result<&'static str, HandlerError> {
+    let revoked = state
+        .key_services
+        .revoke(id)
+        .await
+        .map_err(|e| store_failure("revoke API key", &e))?;
+    if revoked {
+        Ok("API key revoked")
+    } else {
+        Err(unknown_key())
+    }
 }
 
 #[cfg(test)]
@@ -164,34 +282,49 @@ mod tests {
     use super::*;
     use axum::http::HeaderMap;
 
+    use crate::keys::{Keyring, MasterKey};
+
+    fn hmac_keys() -> Keyring {
+        Keyring::new(&MasterKey::from_bytes([3; 32]))
+    }
+
     #[test]
     fn test_generate_api_key_length() {
-        let key = ApiKey::generate();
+        let key = ApiKey::generate().unwrap();
         assert_eq!(key.len(), 43);
     }
 
     #[test]
     fn test_generate_api_key_uniqueness() {
-        let key1 = ApiKey::generate();
-        let key2 = ApiKey::generate();
+        let key1 = ApiKey::generate().unwrap();
+        let key2 = ApiKey::generate().unwrap();
         assert_ne!(key1, key2);
     }
 
     #[test]
     fn test_hash_api_key() {
         let key = "test_key_12345";
-        let hash = ApiKey::hash(key, "secret");
-        assert!(!hash.is_empty());
+        let hash = hmac_keys().api_keys.hmac.hash(key);
         assert_ne!(hash, key);
-        assert_eq!(hash.len(), 64); // SHA256 produces 64 hex characters
+        assert_eq!(hash.len(), 64); // HMAC-SHA256 produces 64 hex characters
     }
 
     #[test]
     fn test_hash_api_key_deterministic() {
         let key = "test_key_12345";
-        let hash1 = ApiKey::hash(key, "secret");
-        let hash2 = ApiKey::hash(key, "secret");
-        assert_eq!(hash1, hash2);
+        assert_eq!(
+            hmac_keys().api_keys.hmac.hash(key),
+            hmac_keys().api_keys.hmac.hash(key)
+        );
+    }
+
+    #[test]
+    fn test_admin_key_comparison() {
+        let expected = SecretString::from("correct-admin-key");
+        assert!(is_admin_key("correct-admin-key", &expected));
+        assert!(!is_admin_key("correct-admin-kez", &expected));
+        assert!(!is_admin_key("correct-admin-key-longer", &expected));
+        assert!(!is_admin_key("", &expected));
     }
 
     #[test]

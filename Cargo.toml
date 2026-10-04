@@ -2,18 +2,23 @@
 name = "arktos-wallet"
 version = "0.1.0"
 edition = "2024"
+# No license has been chosen yet (see README); never publish to crates.io by accident.
+publish = false
 
 [dependencies]
 tokio = { version = "1", features = ["full"] }
 
 # Use rusqlite and bundle SQLCipher + a vendored OpenSSL
 rusqlite = { version = "0.38", features = ["bundled-sqlcipher-vendored-openssl"] }
+# Embedded, versioned SQL migrations (PRAGMA user_version). Pinned to the
+# release line that targets rusqlite 0.38.
+rusqlite_migration = "~2.4"
 
-# Official MCP Rust SDK
-rmcp = { version = "0.12", features = [
+# Official MCP Rust SDK (MCP 2026-07-28, stateless Streamable HTTP server)
+rmcp = { version = "3.5", default-features = false, features = [
     "server",
     "macros",
-    "transport-streamable-http-server"
+    "transport-streamable-http-server",
 ] }
 
 axum = "0.8"
@@ -25,28 +30,38 @@ schemars = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
-# For graceful shutdown token used by rmcp streamable-http config
+# Shutdown token passed to the rmcp HTTP transport
 tokio-util = "0.7"
 anyhow = "1.0.100"
-chrono = { version = "0.4", features = ["serde"] }
 
 bip39 = "2"
 bip32 = "0.5"
 bitcoin = { version = "0.32", features = ["std"] }
 tiny-keccak = { version = "2", features = ["keccak"] }
-rand = "0.8"
 hex = "0.4"
-sha2 = "0.10"
+sha2 = "0.11"
 http = "1.4.0"
 base64 = "0.22.1"
-aes-gcm = "0.11.0-rc.2"
-aead = "0.6.0-rc.5"
 clap = { version = "4.5.54", features = ["derive"] }
-hmac = "0.12.1"
 utoipa = "5"
+
+# Cryptographic boundary (RustCrypto + OS RNG); see src/keys.rs and src/crypto.rs
+aes-gcm = { version = "0.11.1", default-features = false, features = ["aes", "alloc", "zeroize"] }
+hkdf = "0.13"
+hmac = "0.13"
+getrandom = "0.4"
+zeroize = "1.8"
+secrecy = "0.10"
+subtle = "2.6"
 utoipa-swagger-ui = { version = "9", features = ["axum"] }
 
 [dev-dependencies]
 tempfile = "3"
+# Official MCP client used by the protocol-level integration tests
+rmcp = { version = "3.5", default-features = false, features = [
+    "client",
+    "transport-streamable-http-client-reqwest",
+] }
+reqwest = { version = "0.13", default-features = false, features = ["json"] }
 
 

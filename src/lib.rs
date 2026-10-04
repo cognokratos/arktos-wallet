@@ -1,12 +1,15 @@
 pub mod api_info;
 pub mod api_key;
+pub mod app;
 pub mod auth;
 pub mod config;
 pub mod crypto;
 pub mod database;
+pub mod domain;
 pub mod error;
 pub mod key_services;
 pub mod key_store;
+pub mod keys;
 pub mod mcp;
 pub mod wallet;
 pub mod wallet_manager;

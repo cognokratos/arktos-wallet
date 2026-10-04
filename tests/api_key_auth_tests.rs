@@ -2,6 +2,11 @@ use arktos_wallet::database::Database;
 use arktos_wallet::key_services::KeyServices;
 use std::sync::Arc;
 
+/// Deterministic key hierarchy for tests (fixed, non-secret master key).
+fn test_keyring() -> arktos_wallet::keys::Keyring {
+    arktos_wallet::keys::Keyring::new(&arktos_wallet::keys::MasterKey::from_bytes([0x42; 32]))
+}
+
 // Helper function to setup test database
 fn setup_test_db() -> Arc<Database> {
     let db_path = ":memory:";
@@ -12,7 +17,7 @@ fn setup_test_db() -> Arc<Database> {
 #[tokio::test]
 async fn test_create_api_key() {
     let db = setup_test_db();
-    let key_services = KeyServices::new(db.clone(), "secret".to_string());
+    let key_services = KeyServices::new(db.clone(), test_keyring().api_keys);
 
     let client_name = "test_client";
 
@@ -26,7 +31,7 @@ async fn test_create_api_key() {
 #[tokio::test]
 async fn test_validate_api_key_valid() {
     let db = setup_test_db();
-    let key_services = KeyServices::new(db.clone(), "secret".to_string());
+    let key_services = KeyServices::new(db.clone(), test_keyring().api_keys);
 
     let client_name = "test_client";
 
@@ -40,13 +45,13 @@ async fn test_validate_api_key_valid() {
 
     let api_key = result.unwrap();
     assert_eq!(api_key.name, client_name);
-    assert_eq!(api_key.is_revoked, false);
+    assert!(!api_key.is_revoked);
 }
 
 #[tokio::test]
 async fn test_validate_api_key_invalid() {
     let db = setup_test_db();
-    let key_services = KeyServices::new(db.clone(), "secret".to_string());
+    let key_services = KeyServices::new(db.clone(), test_keyring().api_keys);
 
     // Try to validate non-existent API key
     let result = key_services.validate("invalid_key_12345678").await;
@@ -56,7 +61,7 @@ async fn test_validate_api_key_invalid() {
 #[tokio::test]
 async fn test_validate_api_key_revoked() {
     let db = setup_test_db();
-    let key_services = KeyServices::new(db.clone(), "secret".to_string());
+    let key_services = KeyServices::new(db.clone(), test_keyring().api_keys);
 
     let client_name = "test_client";
 
@@ -82,7 +87,7 @@ async fn test_validate_api_key_revoked() {
 #[tokio::test]
 async fn test_list_api_keys_for_wallet() {
     let db = setup_test_db();
-    let key_services = KeyServices::new(db.clone(), "secret".to_string());
+    let key_services = KeyServices::new(db.clone(), test_keyring().api_keys);
 
     // Create multiple API keys
     let _key1 = key_services
@@ -107,7 +112,7 @@ async fn test_list_api_keys_for_wallet() {
 #[tokio::test]
 async fn test_api_key_stored_hashed() {
     let db = setup_test_db();
-    let key_services = KeyServices::new(db.clone(), "secret".to_string());
+    let key_services = KeyServices::new(db.clone(), test_keyring().api_keys);
 
     let api_key = key_services
         .create("test_client")
@@ -131,7 +136,7 @@ async fn test_api_key_stored_hashed() {
 #[tokio::test]
 async fn test_unique_api_keys() {
     let db = setup_test_db();
-    let key_services = KeyServices::new(db.clone(), "secret".to_string());
+    let key_services = KeyServices::new(db.clone(), test_keyring().api_keys);
 
     let key1 = key_services
         .create("client_1")

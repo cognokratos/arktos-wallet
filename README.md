@@ -10,17 +10,18 @@ Arktos Wallet is a production-ready reference implementation that showcases best
 
 - **Secure Wallet Management**: Non-custodial wallet creation with BIP39/BIP32 cryptographic standards
 - **Multi-Account Support**: Manage multiple blockchain accounts under a single system owner
-- **API Key Authentication**: Secure MCP (Model Context Protocol) server with API key-based authentication
-- **Data Encryption**: AES-256 encryption at rest using SQLCipher for sensitive wallet data
+- **Modern MCP**: Stateless [MCP `2026-07-28`](https://modelcontextprotocol.io/specification/2026-07-28) server built on the official `rmcp` 3.x SDK
+- **API Key Authentication**: MCP access protected by per-client API keys; wallets are scoped to the key
+- **Data Encryption**: SQLCipher database encryption plus AES-256-GCM field encryption of wallet secrets with HKDF-separated keys
 - **Docker Deployment**: Multi-stage Docker builds for lean, production-ready containerization
 - **Extensibility**: Designed as a customizable foundation for builders and system owners
 
 ## 🚀 Quick Start
 
 ### Prerequisites
-- Rust 2024 edition
+- [rustup](https://rustup.rs/) — the Rust toolchain (currently 1.97.1, 2024 edition) is pinned in [`rust-toolchain.toml`](./rust-toolchain.toml) and installed automatically
+- A C toolchain, `make` and `perl` (SQLCipher and OpenSSL are built from source; no system SQLite needed)
 - Docker (for containerized deployment)
-- SQLite 3.x
 
 ### Development Setup
 ```bash
@@ -31,7 +32,13 @@ cargo test
 cargo run
 ```
 
+Run `make ci` for the full set of local checks (formatting, Clippy, tests, `cargo audit`, `cargo deny`). See [CONTRIBUTING.md](./CONTRIBUTING.md) for the required tools.
+
 For detailed development instructions, see [Development Guide](./docs/development-guide.md).
+
+### Connecting an MCP client
+
+Point a client that supports MCP `2026-07-28` at `http://localhost:8080/mcp` and send a client API key (created via `POST /admin/api-keys`) in the `X-API-KEY` header. Arktos only speaks `2026-07-28`: there is no `initialize` handshake or session, and clients discover the server with `server/discover`. See [API Contracts](./docs/api-contracts.md#2-mcp-entrypoint).
 
 ### Docker Deployment
 ```bash
@@ -44,20 +51,21 @@ For deployment details, see [Deployment Guide](./docs/deployment-guide.md).
 ## 📋 Core Features
 
 - ✅ Wallet creation with secure recovery passphrases
-- ✅ Bitcoin & Ethereum address derivation
+- ✅ Bitcoin Taproot addresses (BIP39 + BIP32 + BIP86) on a configurable network (`mainnet`, `testnet`, `signet`, `regtest`)
+- ✅ Ethereum addresses (BIP39 + BIP32, BIP44 path) with EIP-55 checksums and a configured chain ID
+- ✅ Structured, schema-described MCP results and typed error codes
 - ✅ Multi-account management per wallet
-- ✅ Encrypted SQLite database with SQLCipher
-- ✅ HTTP MCP endpoint with API key authentication
-- ✅ Health check endpoint (`/healthz`)
+- ✅ Encrypted SQLite database with SQLCipher, versioned migrations and enforced constraints
+- ✅ Stateless MCP `2026-07-28` HTTP endpoint (`server/discover`, no sessions) with API key authentication
+- ✅ Liveness (`/healthz`) and readiness (`/readyz`) endpoints
 - ✅ Comprehensive audit logging
-- ✅ Stateless microservice architecture for horizontal scaling
+- ✅ Stateless MCP protocol layer (persistent wallet data in a local, single-instance SQLCipher database)
 
 ## 📚 Documentation
 
 ### Project Overview
 - **[Project Overview](./docs/project-overview.md)** - High-level introduction and technology stack
 - **[Architecture](./docs/architecture.md)** - System design, patterns, and technical decisions
-- **[Source Tree Analysis](./docs/source-tree-analysis.md)** - Project structure and module organization
 
 ### Development & Deployment
 - **[Development Guide](./docs/development-guide.md)** - Setup, building, testing, and local development
@@ -87,23 +95,26 @@ Replace API key authentication with your identity provider (e.g., OAuth2, JWT, m
 The architecture supports encryption and audit logging requirements for GDPR, HIPAA, and other regulations. See [Regional Compliance](./docs/regional-compliance.md) for guidance.
 
 ### Customize Database & Storage
-Swap SQLite for PostgreSQL, MongoDB, or other storage backends while maintaining the same API contract.
+SQLite + SQLCipher is the intended storage for a self-hosted, single-instance deployment. Persistence is isolated in `Database`, `KeyStore` and `WalletStore`, so another backend can replace them while keeping the same API contract.
 
 ## 🔐 Security & Privacy
 
-- **Encryption at Rest**: AES-256 encryption via SQLCipher
-- **Secure Communication**: TLS 1.2+ for all communication
-- **API Key Management**: Secure API key storage and validation
+- **Two Independent Encryption Layers**: SQLCipher encrypts the database file (`DATABASE_KEY`); recovery phrases are additionally encrypted with AES-256-GCM under keys derived from `MASTER_KEY` via HKDF-SHA256, so database access alone does not reveal them
+- **Key Separation**: API-key hashing and seed encryption each use their own derived key; generate secrets with `make secret`
+- **No Private-Key Storage**: only the encrypted recovery phrase is persisted; account keys are re-derived on demand
+- **Secret Hygiene**: Secrets are zeroized after use where practical and never logged or returned (memory secrecy is best-effort, not absolute)
+- **Secure Communication**: Terminate TLS 1.2+ in front of Arktos (it serves plain HTTP)
+- **API Key Management**: Only HMAC-SHA256 hashes of API keys are stored
 - **Audit Logging**: Comprehensive logging of critical wallet operations
 - **No Custodial Control**: System owners maintain full control of encryption keys
 
-For security details, see [Architecture](./docs/architecture.md#security-architecture).
+For security details, see [Architecture — Key Hierarchy & Secret Storage](./docs/architecture.md#key-hierarchy--secret-storage).
 
 ## 📊 Performance Characteristics
 
 - **Wallet Creation**: < 500ms (p95)
 - **Address Retrieval**: < 100ms (p95)
-- **Concurrency**: 100+ req/s with horizontal scaling
+- **Concurrency**: 100+ req/s (target, single instance)
 - **Database Capacity**: 10,000 wallets, 50,000+ accounts
 - **Uptime Target**: 99.9% (production deployment)
 
@@ -111,11 +122,11 @@ For security details, see [Architecture](./docs/architecture.md#security-archite
 
 | Component | Technology | Version | Purpose |
 |-----------|-----------|---------|---------|
-| Language | Rust | 2024 edition | Type-safe, high-performance backend |
+| Language | Rust | 1.97 (2024 edition) | Type-safe, high-performance backend |
 | Web Framework | Axum | 0.8+ | Async HTTP server |
 | Async Runtime | Tokio | 1.x | Non-blocking I/O |
 | Database | SQLite + SQLCipher | 3.x | Encrypted local persistence |
-| Protocol | MCP (Model Context Protocol) | rmcp 0.12+ | AI agent integration |
+| Protocol | MCP (Model Context Protocol) | spec `2026-07-28`, rmcp 3.x | AI agent integration (stateless HTTP) |
 | Cryptography | secp256k1, bip39, bip32 | Latest | Blockchain standards |
 | Serialization | Serde | 1.x | Data encoding (JSON, binary) |
 
@@ -123,13 +134,14 @@ For security details, see [Architecture](./docs/architecture.md#security-archite
 
 Arktos Wallet is an open-source educational project. Contributions, forks, and adaptations are encouraged!
 
-- **For enhancements**: Open issues and pull requests
+- **For enhancements**: Open issues and pull requests — see [CONTRIBUTING.md](./CONTRIBUTING.md)
+- **For security issues**: Report privately as described in [SECURITY.md](./SECURITY.md); do not open public issues
 - **For custom implementations**: This repository serves as a reference—fork and adapt it to your specific needs
 - **For compliance work**: See [Regional Compliance Guide](./docs/regional-compliance.md) for patterns and considerations
 
 ## 📝 License
 
-[Specify your license here]
+> **TODO (repository owner):** No license has been chosen yet. Until a `LICENSE` file is added, no license is granted and default copyright applies. A license must be selected before any release. The crate is marked `publish = false` in the meantime.
 
 ## 🆘 Support & Community
 

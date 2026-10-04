@@ -16,13 +16,12 @@ This document is the master index for all documentation related to the Arktos Wa
 ### 🏗️ Architecture & Design
 
 - **[Architecture](./architecture.md)** - Complete system design, patterns, technology stack decisions, and API design
-- **[Source Tree Analysis](./source-tree-analysis.md)** - Project structure, module organization, and file layout
 - **[Data Models](./data-models.md)** - Database schema, wallet structure, account management, and data relationships
 
 ### 🔌 API & Integration
 
 - **[API Contracts](./api-contracts.md)** - HTTP endpoints, MCP tools specification, request/response formats, and error codes
-- **[MCP Tools]** - `create_wallet`, `get_bitcoin_address`, `get_ethereum_address` exposed via `/mcp` endpoint
+- **[MCP Tools]** - `ping`, `create_wallet`, `get_bitcoin_address`, `get_ethereum_address` exposed via the stateless MCP `2026-07-28` `/mcp` endpoint
 - **[Health Check]** - `/healthz` endpoint for system monitoring
 
 ### 📚 Development & Deployment
@@ -62,8 +61,7 @@ This document is the master index for all documentation related to the Arktos Wa
 
 ### I want to set up development environment
 1. Read [Development Guide](./development-guide.md)
-2. Check [Source Tree Analysis](./source-tree-analysis.md) for project structure
-3. Review [Data Models](./data-models.md) for database understanding
+2. Review [Data Models](./data-models.md) for database understanding
 
 ### I want to integrate with Arktos API
 1. Start with [API Contracts](./api-contracts.md)
@@ -115,20 +113,22 @@ This document is the master index for all documentation related to the Arktos Wa
 | Framework | Axum 0.8+ | HTTP server |
 | Runtime | Tokio 1.x | Async I/O |
 | Database | SQLite + SQLCipher | Encrypted persistence |
-| Protocol | MCP (rmcp 0.12+) | AI agent integration |
+| Protocol | MCP `2026-07-28` (rmcp 3.x, stateless HTTP) | AI agent integration |
 | Crypto | secp256k1, bip39, bip32 | Blockchain standards |
 | Serialization | Serde 1.x | JSON/binary encoding |
 
 ### Core MCP Tools
 
+- `ping` - Liveness check of the MCP tool router
 - `create_wallet` - Create new non-custodial wallet with recovery passphrase
-- `get_bitcoin_address` - Derive and retrieve Bitcoin address for wallet
-- `get_ethereum_address` - Derive and retrieve Ethereum address for wallet
+- `get_bitcoin_address` - BIP86 Taproot address on the configured Bitcoin network (structured result)
+- `get_ethereum_address` - EIP-55 Ethereum address with the configured chain ID (structured result)
 
 ### Endpoints
 
 - `GET /healthz` - Health check
-- `POST /mcp` - Model Context Protocol endpoint (authentication required)
+- `POST /mcp` - MCP `2026-07-28` endpoint, stateless (client API key required)
+- `/admin/api-keys` - API key administration (admin API key required)
 
 ---
 
