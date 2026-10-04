@@ -41,7 +41,7 @@ tiny-keccak = { version = "2", features = ["keccak"] }
 hex = "0.4"
 sha2 = "0.11"
 http = "1.4.0"
-base64 = "0.22.1"
+base64 = "0.23.1"
 clap = { version = "4.5.54", features = ["derive"] }
 utoipa = "5"
 
