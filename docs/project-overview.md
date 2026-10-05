@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-**Arktos Wallet** is an **open-source, educational blueprint** for building AI-controlled non-custodial wallets. It demonstrates secure wallet management, multi-account support, and blockchain integration patterns—designed for customization and regional compliance adaptation.
+**Arktos Wallet** is an **open-source, educational blueprint** for agent-accessible, self-hosted non-custodial wallet services: agents can create wallets and obtain public addresses, and never receive recovery phrases, seeds or private keys. Arktos does not sign or broadcast transactions. It demonstrates secure wallet management, multi-account support, and blockchain integration patterns—designed for customization and regional compliance adaptation.
 
 Arktos is a backend HTTP server developed in Rust. It functions as a monolithic service designed to act as an "HTTP MCP server" implementing [MCP `2026-07-28`](https://modelcontextprotocol.io/specification/2026-07-28) over the stateless Streamable HTTP transport, using the official `rmcp` 3.x SDK. The technology stack is modern and asynchronous, built on the Tokio runtime and the Axum web framework.
 
@@ -99,7 +99,7 @@ The application follows an **API-centric architecture** with these key character
 5. **Persistence Layer** (SQLCipher)
    - Encrypted SQLite database
    - Wallet data & accounts
-   - Audit logs
+   - API-key hashes
 
 ### Stateless MCP, Persistent Data
 
@@ -242,6 +242,7 @@ For detailed information on specific topics:
 
 | Topic | Document |
 |-------|----------|
+| **Learning path** | [Cryptographic Capability Learning Path](./CRYPTOGRAPHIC-CAPABILITY-LEARNING-PATH.md) |
 | **Architecture & Design** | [Architecture](./architecture.md) |
 | **API Specification** | [API Contracts](./api-contracts.md) |
 | **Database Schema** | [Data Models](./data-models.md) |

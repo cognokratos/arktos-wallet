@@ -22,6 +22,9 @@ use sha2::Sha256;
 use std::fmt;
 use zeroize::Zeroizing;
 
+// KEY-DOMAIN: these labels are part of the persistent data format. Every
+// stored API-key hash and wallet envelope depends on them, so changing one
+// is a migration (see docs/capability/02-design-key-hierarchies.md).
 const API_KEY_HMAC_INFO: &[u8] = b"arktos/api-key-hmac/v1";
 const WALLET_SEED_INFO: &[u8] = b"arktos/wallet-seed-encryption/v1";
 
@@ -150,6 +153,26 @@ pub struct WalletKeys {
 }
 
 /// All purpose-specific keys derived from one master key.
+///
+/// Each purpose is a distinct type, so using one purpose's key for another
+/// does not compile:
+///
+/// ```compile_fail
+/// use arktos_wallet::crypto;
+/// use arktos_wallet::keys::{Keyring, MasterKey};
+///
+/// let keyring = Keyring::new(&MasterKey::from_bytes([1; 32]));
+/// // error[E0308]: expected `&AeadKey`, found `&ApiKeyHmacKey`
+/// crypto::seal(&keyring.api_keys.hmac, b"synthetic secret").unwrap();
+/// ```
+///
+/// ```
+/// use arktos_wallet::crypto;
+/// use arktos_wallet::keys::{Keyring, MasterKey};
+///
+/// let keyring = Keyring::new(&MasterKey::from_bytes([1; 32]));
+/// crypto::seal(keyring.wallet.seed.aead(), b"synthetic secret").unwrap();
+/// ```
 #[derive(Debug)]
 pub struct Keyring {
     pub api_keys: ApiKeyKeys,
@@ -172,6 +195,7 @@ impl Keyring {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::crypto;
     use base64::engine::general_purpose::URL_SAFE;
 
     const MASTER_A: [u8; 32] = [0x11; 32];
@@ -241,6 +265,26 @@ mod tests {
             .unwrap();
         assert_eq!(seed.as_slice(), &okm);
         assert_eq!(hmac.len(), 32);
+    }
+
+    #[test]
+    fn existing_ciphertext_opens_only_with_its_own_purpose_label() {
+        // Renaming or re-versioning a label is a data migration, not a refactor.
+        let master = MasterKey::from_bytes(MASTER_A);
+        let sealed = crypto::seal(
+            Keyring::new(&master).wallet.seed.aead(),
+            b"synthetic secret",
+        )
+        .unwrap();
+        let with_label = |info: &[u8]| AeadKey::new(master.derive(info), "wallet-seed");
+
+        assert!(crypto::open(&with_label(WALLET_SEED_INFO), &sealed).is_ok());
+        for info in [&b"arktos/wallet-seed-encryption/v2"[..], API_KEY_HMAC_INFO] {
+            assert_eq!(
+                crypto::open(&with_label(info), &sealed).unwrap_err(),
+                crypto::CryptoError::DecryptionFailed
+            );
+        }
     }
 
     #[test]

@@ -1,6 +1,6 @@
 # Arktos Wallet - Architecture
 
-This document outlines the architecture of the Arktos Wallet application, positioning it as an open-source blueprint for AI-controlled non-custodial wallets.
+This document outlines the architecture of the Arktos Wallet application, positioning it as an open-source blueprint for agent-accessible, self-hosted non-custodial wallet services. Agents can create wallets and obtain public addresses; Arktos does not sign or broadcast transactions.
 
 ## 1. Executive Summary
 
@@ -82,7 +82,7 @@ Arktos follows a **layered API-centric architecture** optimized for:
 │ Persistence Layer (SQLCipher)               │
 │ - Encrypted SQLite database                 │
 │ - Wallet data & accounts                    │
-│ - Audit logs                                │
+│ - API-key hashes                            │
 └─────────────────────────────────────────────┘
 ```
 
@@ -512,7 +512,7 @@ Arktos architecture supports compliance requirements for various regulations:
 - ✅ Access control (API key + ownership)
 - ✅ Data minimization (only essential data)
 - ✅ Non-custodial model (system owner controls keys)
-- ✅ Stateless design (no in-memory secrets)
+- ✅ Stateless MCP protocol layer (no session state; secrets live in memory only as described in [Key Hierarchy & Secret Storage](#key-hierarchy--secret-storage))
 
 See [Regional Compliance](./regional-compliance.md) for detailed patterns and implementation guidance.
 

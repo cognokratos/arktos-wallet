@@ -9,7 +9,7 @@ Thanks for your interest in contributing! For security issues, follow
    are pinned in [`rust-toolchain.toml`](./rust-toolchain.toml) and installed
    automatically on the first `cargo` invocation.
 2. Install a C toolchain, `make` and `perl` (SQLCipher and OpenSSL are compiled
-   from source by `rusqlite`).
+   from source by `rusqlite`), and `python3` for the documentation checks.
 3. Install the check tools:
 
    ```bash
@@ -35,6 +35,7 @@ Run `make help` to list all targets.
 | Tests | `make test` (cargo test) or `make nextest` (as CI) |
 | Vulnerability audit | `make audit` |
 | Licenses / bans / sources / advisories | `make deny` |
+| Documentation links, anchors, paths, make targets | `make docs-check` |
 | **Everything CI runs, except Docker** | `make ci` |
 | Dockerfile lint / image build | `make docker-lint` / `make docker-build` |
 
@@ -49,6 +50,9 @@ image builds and Dockerfile linting run in CI only.
   (`feat:`, `fix:`, `chore:`, `docs:`, `ci:` …).
 - `make ci` must pass locally, and all CI jobs must be green.
 - Add or update tests for behavior changes, and update docs affected by the change.
+  If the change touches keys, envelopes, derivation, tool contracts or the
+  persistence model, check the [learning material](./docs/CRYPTOGRAPHIC-CAPABILITY-LEARNING-PATH.md)
+  too: it makes claims about exactly those things.
 - Fix Clippy findings rather than silencing them; a scoped `#[allow(...)]`
   needs a comment explaining why.
 - New dependencies must pass `cargo deny` (allowed licenses, crates.io only).

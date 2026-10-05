@@ -302,3 +302,53 @@ async fn non_envelope_values_are_rejected() {
         .to_string();
     assert!(err.contains("invalid encrypted-secret envelope"), "{err}");
 }
+
+#[tokio::test]
+async fn losing_the_master_key_leaves_only_already_public_data_usable() {
+    let fx = Fixture::new();
+    let keys = KeyServices::new(fx.db.clone(), fx.keyring(MASTER).api_keys);
+    let raw = keys.create("owner").await.unwrap();
+    let owner = keys.validate(&raw).await.unwrap();
+    let before = fx.wallet_services(MASTER);
+    before
+        .create_wallet(
+            &owner,
+            CreateWalletRequest {
+                wallet_name: "w".into(),
+            },
+        )
+        .await
+        .unwrap();
+    let derived = before.get_bitcoin_address(&owner, btc("w")).await.unwrap();
+
+    // Restart with the same database but a replacement MASTER_KEY.
+    const REPLACEMENT: [u8; 32] = [0x99; 32];
+    let keys = KeyServices::new(fx.db.clone(), fx.keyring(REPLACEMENT).api_keys);
+    assert!(
+        keys.validate(&raw).await.is_err(),
+        "old API keys stop verifying"
+    );
+    // An admin can re-issue the owner's key; ownership is by key id.
+    let reissued = keys.rotate(owner.id).await.unwrap().unwrap();
+    let owner = keys.validate(&reissued).await.unwrap();
+
+    let after = fx.wallet_services(REPLACEMENT);
+    // Stored accounts are public rows: they are served without decryption...
+    assert_eq!(
+        after.get_bitcoin_address(&owner, btc("w")).await.unwrap(),
+        derived
+    );
+    // ...but nothing new can be derived: the recovery phrase is gone.
+    let err = after
+        .get_bitcoin_address(
+            &owner,
+            GetBitcoinAddressRequest {
+                wallet_name: "w".into(),
+                account_index: Some(1),
+            },
+        )
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("failed to decrypt secret"), "{err}");
+}

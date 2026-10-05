@@ -11,7 +11,7 @@ Arktos's core design decisions support compliance requirements:
 | **Data Encryption at Rest** | ✅ SQLCipher + AES-256-GCM field encryption | Database file encrypted; recovery phrases additionally encrypted under HKDF-derived keys |
 | **Audit Logging** | ✅ Comprehensive logging | Every wallet operation logged with timestamp, actor, action |
 | **Access Control** | ✅ API key authentication + ownership model | Role-based access via MCP tokens |
-| **Data Minimization** | ✅ Stateless design | No unnecessary data retention in memory |
+| **Data Minimization** | ✅ Stateless MCP layer | No session state retained between requests; only public account data stored besides the encrypted phrase |
 | **Secure Communication** | ✅ TLS 1.2+ ready | HTTPS enforced in production |
 | **Key Management** | ✅ Non-custodial model | System owner controls encryption keys |
 | **Immutable Records** | ✅ SQLite ACID properties | Database transactions ensure consistency |

@@ -1,20 +1,37 @@
 # Άρκτος Wallet
 
-An **open-source, educational blueprint** for building AI-controlled non-custodial wallets. Arktos demonstrates secure wallet management, multi-account support, and blockchain integration patterns—designed for customization and regional compliance adaptation.
+A **secure, self-hosted, non-custodial wallet capability service for AI agents**: an open-source, educational blueprint that lets agents create HD wallets and obtain Bitcoin and Ethereum addresses through MCP, without the model ever holding a recovery phrase, a seed or a private key.
+
+> **Give agents capabilities, never secrets.**
+
+Today an agent can create wallets and derive public addresses. It **cannot** sign or broadcast transactions, sign messages, or export keys or seeds, so Arktos grants no authority to move value. Wallet secrets are encrypted at rest under keys held by the operator, and the service decrypts them only briefly to derive accounts.
 
 ![](docs/bg.png)
 
 ## 🎯 What is Arktos Wallet?
 
-Arktos Wallet is a production-ready reference implementation that showcases best practices for:
+Arktos Wallet is a reference implementation that showcases best practices for:
 
-- **Secure Wallet Management**: Non-custodial wallet creation with BIP39/BIP32 cryptographic standards
+- **Secure Wallet Management**: Self-hosted wallet creation with BIP39/BIP32 cryptographic standards; the operator, not a third party, holds the keys
 - **Multi-Account Support**: Manage multiple blockchain accounts under a single system owner
 - **Modern MCP**: Stateless [MCP `2026-07-28`](https://modelcontextprotocol.io/specification/2026-07-28) server built on the official `rmcp` 3.x SDK
 - **API Key Authentication**: MCP access protected by per-client API keys; wallets are scoped to the key
 - **Data Encryption**: SQLCipher database encryption plus AES-256-GCM field encryption of wallet secrets with HKDF-separated keys
 - **Docker Deployment**: Multi-stage Docker builds for lean, production-ready containerization
 - **Extensibility**: Designed as a customizable foundation for builders and system owners
+
+## 🎓 Learn
+
+The CognoKratos projects are four distinct learning tracks:
+
+| If you want… | Go to |
+|---|---|
+| Production agent engineering | [simple-agent-template](https://github.com/cognokratos/simple-agent-template) |
+| Durable agent runtime and state | [sophos-agent](https://github.com/cognokratos/sophos-agent) |
+| Governed decision systems | [etf-research-agent](https://github.com/cognokratos/etf-research-agent) |
+| **Cryptographic capability engineering** | **[Arktos learning path](./docs/CRYPTOGRAPHIC-CAPABILITY-LEARNING-PATH.md)** |
+
+The Arktos track asks how probabilistic software can request cryptographic operations without the model becoming the custodian of cryptographic authority. It covers key hierarchies, versioned envelopes, secret lifetimes, deterministic derivation, out-of-band identity, least-capability tools and recovery, all grounded in this codebase. Start with the [secret lifecycle walkthrough](./docs/capability/SECRET-LIFECYCLE-WALKTHROUGH.md) if you have 30 minutes.
 
 ## 🚀 Quick Start
 
@@ -58,10 +75,13 @@ For deployment details, see [Deployment Guide](./docs/deployment-guide.md).
 - ✅ Encrypted SQLite database with SQLCipher, versioned migrations and enforced constraints
 - ✅ Stateless MCP `2026-07-28` HTTP endpoint (`server/discover`, no sessions) with API key authentication
 - ✅ Liveness (`/healthz`) and readiness (`/readyz`) endpoints
-- ✅ Comprehensive audit logging
+- ✅ Structured operation logging (tool, API-key id, wallet id, public addresses; never secrets)
 - ✅ Stateless MCP protocol layer (persistent wallet data in a local, single-instance SQLCipher database)
 
 ## 📚 Documentation
+
+### Learn
+- **[Cryptographic Capability Learning Path](./docs/CRYPTOGRAPHIC-CAPABILITY-LEARNING-PATH.md)** - Lessons C1–C8, secret lifecycle walkthrough, case studies and challenges
 
 ### Project Overview
 - **[Project Overview](./docs/project-overview.md)** - High-level introduction and technology stack
@@ -86,10 +106,10 @@ For a complete documentation index, see [Documentation Index](./docs/index.md).
 Arktos is designed as a **customizable blueprint**. System owners can adapt it for specific requirements:
 
 ### Add New Blockchain Support
-Extend the architecture to support additional blockchains (e.g., Solana, Polkadot) by implementing custom key derivation modules. See [Customization Guide](./docs/customization-guide.md#adding-blockchain-support) for patterns and examples.
+Extend the architecture to support additional blockchains (e.g., Solana, Polkadot) by implementing custom key derivation modules. See [Customization Guide](./docs/customization-guide.md#1-adding-blockchain-support) for patterns and examples.
 
 ### Integrate Custom Authentication
-Replace API key authentication with your identity provider (e.g., OAuth2, JWT, mTLS). The modular security layer allows seamless substitution. See [Customization Guide](./docs/customization-guide.md#custom-authentication).
+Replace API key authentication with your identity provider (e.g., OAuth2, JWT, mTLS). The modular security layer allows seamless substitution. See [Customization Guide](./docs/customization-guide.md#2-custom-authentication).
 
 ### Adapt for Regional Compliance
 The architecture supports encryption and audit logging requirements for GDPR, HIPAA, and other regulations. See [Regional Compliance](./docs/regional-compliance.md) for guidance.
@@ -101,12 +121,12 @@ SQLite + SQLCipher is the intended storage for a self-hosted, single-instance de
 
 - **Two Independent Encryption Layers**: SQLCipher encrypts the database file (`DATABASE_KEY`); recovery phrases are additionally encrypted with AES-256-GCM under keys derived from `MASTER_KEY` via HKDF-SHA256, so database access alone does not reveal them
 - **Key Separation**: API-key hashing and seed encryption each use their own derived key; generate secrets with `make secret`
-- **No Private-Key Storage**: only the encrypted recovery phrase is persisted; account keys are re-derived on demand
+- **No Private-Key Storage**: only the encrypted recovery phrase is persisted; account private keys exist only in memory during one derivation and are never stored or returned
 - **Secret Hygiene**: Secrets are zeroized after use where practical and never logged or returned (memory secrecy is best-effort, not absolute)
 - **Secure Communication**: Terminate TLS 1.2+ in front of Arktos (it serves plain HTTP)
 - **API Key Management**: Only HMAC-SHA256 hashes of API keys are stored
-- **Audit Logging**: Comprehensive logging of critical wallet operations
-- **No Custodial Control**: System owners maintain full control of encryption keys
+- **Operation Logging**: Tool calls and wallet operations are logged with API-key ids and public data only
+- **Self-Hosted Custody**: The system owner holds `MASTER_KEY` and `DATABASE_KEY`; no third party holds wallet secrets. The running service decrypts a recovery phrase transiently to derive an account, so whoever operates the instance is its custodian
 
 For security details, see [Architecture — Key Hierarchy & Secret Storage](./docs/architecture.md#key-hierarchy--secret-storage).
 
