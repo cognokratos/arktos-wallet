@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-**Arktos Wallet** is an **open-source, educational blueprint** for building AI-controlled non-custodial wallets. It demonstrates secure wallet management, multi-account support, and blockchain integration patterns—designed for customization and regional compliance adaptation.
+**Arktos Wallet** is an **open-source, educational blueprint** for self-hosted wallet capability services for AI agents: agents can create wallets and obtain public addresses, and the MCP surface returns no recovery phrases, seeds or private keys. Whoever operates an instance holds its keys and has effective custody of the stored wallet secrets. Arktos does not sign or broadcast transactions. It demonstrates secure wallet management, multi-account support, and blockchain integration patterns—designed for customization and regional compliance adaptation.
 
 Arktos is a backend HTTP server developed in Rust. It functions as a monolithic service designed to act as an "HTTP MCP server" implementing [MCP `2026-07-28`](https://modelcontextprotocol.io/specification/2026-07-28) over the stateless Streamable HTTP transport, using the official `rmcp` 3.x SDK. The technology stack is modern and asynchronous, built on the Tokio runtime and the Axum web framework.
 
@@ -10,19 +10,19 @@ Arktos is a backend HTTP server developed in Rust. It functions as a monolithic 
 
 ### 🎯 Core Capabilities
 
-- **Secure Wallet Creation**: Non-custodial wallets with BIP39/BIP32 cryptographic standards
+- **Secure Wallet Creation**: Self-hosted wallets with BIP39/BIP32 cryptographic standards
 - **Multi-Account Support**: Manage multiple blockchain accounts under a single wallet
 - **API Key Authentication**: Secure MCP server with API key-based authentication
 - **Data Encryption**: SQLCipher database encryption plus AES-256-GCM field encryption of wallet secrets (HKDF-derived, purpose-separated keys)
 - **Docker Deployment**: Multi-stage Docker builds for lean, production-ready containerization
-- **Audit Logging**: Comprehensive logging of all critical wallet operations
+- **Operation Logging**: Tool calls and wallet operations logged with API-key ids and public data only
 
 ### 🔧 Design Philosophy
 
 Arktos is intentionally designed as a **customizable blueprint** for system owners:
 
 - **Modular Architecture**: Clean separation of concerns enables easy extension
-- **Non-Custodial Model**: System owners maintain complete control of encryption keys
+- **Self-Hosted Custody**: Whoever operates the instance controls the encryption keys; no third-party custodian when the wallet owner operates it
 - **Stateless MCP Protocol**: No MCP sessions; every request is independent (wallet data itself is persistent)
 - **Security-First Design**: Encryption, authentication, and authorization by default
 - **Compliance-Ready**: Built-in patterns for GDPR, HIPAA, and other regulations
@@ -56,7 +56,14 @@ arktos-wallet/
 │   └── ...              # Services, MCP, auth
 ├── migrations/          # Versioned SQL migrations (V1__initial_schema.sql, …)
 ├── docs/                # Complete documentation
-│   ├── index.md         # Documentation index (you are here!)
+│   ├── index.md         # Documentation index: Learn / Reference / Operate
+│   ├── CRYPTOGRAPHIC-CAPABILITY-LEARNING-PATH.md  # Learning path (front door)
+│   ├── capability/      # Educational layer
+│   │   ├── README.md
+│   │   ├── 01-model-cryptographic-authority.md … 08-recovery-is-part-of-security.md
+│   │   ├── SECRET-LIFECYCLE-WALKTHROUGH.md
+│   │   ├── CASE-STUDIES.md
+│   │   └── CHALLENGES.md
 │   ├── architecture.md  # System design and patterns
 │   ├── api-contracts.md # HTTP endpoints and MCP tools
 │   ├── data-models.md   # Database schema
@@ -65,6 +72,7 @@ arktos-wallet/
 │   ├── customization-guide.md # How to extend Arktos
 │   └── regional-compliance.md # Compliance patterns
 ├── tests/               # Integration tests
+├── scripts/             # Documentation checker (make docs-check)
 ├── Cargo.toml          # Rust dependencies and metadata
 ├── Dockerfile          # Multi-stage Docker build
 └── README.md           # Quick start guide
@@ -99,7 +107,7 @@ The application follows an **API-centric architecture** with these key character
 5. **Persistence Layer** (SQLCipher)
    - Encrypted SQLite database
    - Wallet data & accounts
-   - Audit logs
+   - API-key hashes
 
 ### Stateless MCP, Persistent Data
 
@@ -141,7 +149,7 @@ All wallet tools return structured JSON described by output schemas in `tools/li
 - ✅ **API Key Authentication**: Secure MCP endpoint access
 - ✅ **Audit Logging**: All operations logged with timestamp, actor, action
 - ✅ **Access Control**: Ownership-based authorization
-- ✅ **Non-Custodial**: System owner controls all encryption keys
+- ✅ **Self-Hosted Custody**: The operator controls all encryption keys (see [README — Custody](../README.md))
 
 See [Architecture Document](./architecture.md#6-security-architecture) for detailed security patterns.
 
@@ -242,6 +250,7 @@ For detailed information on specific topics:
 
 | Topic | Document |
 |-------|----------|
+| **Learning path** | [Cryptographic Capability Learning Path](./CRYPTOGRAPHIC-CAPABILITY-LEARNING-PATH.md) |
 | **Architecture & Design** | [Architecture](./architecture.md) |
 | **API Specification** | [API Contracts](./api-contracts.md) |
 | **Database Schema** | [Data Models](./data-models.md) |

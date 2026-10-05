@@ -5,7 +5,7 @@ endif
 
 IMAGE ?= arktos-wallet:dev
 
-.PHONY: help dev build test nextest check lint fmt fmt-check fix audit deny ci \
+.PHONY: help dev build test nextest check lint fmt fmt-check fix audit deny docs-check ci \
 	docker-build docker-lint docker-run migrate db-info sql secret encrypt decrypt hash
 
 help:
@@ -23,6 +23,7 @@ help:
 	@echo "  fix           Apply automatic clippy/compiler fixes"
 	@echo "  audit         Check dependencies for known vulnerabilities (cargo-audit)"
 	@echo "  deny          Check advisories, licenses, bans and sources (cargo-deny)"
+	@echo "  docs-check    Check doc links, anchors, repository paths and make targets (offline)"
 	@echo "  ci            Run all local CI checks (no Docker required)"
 	@echo ""
 	@echo "Docker:"
@@ -74,9 +75,16 @@ audit:
 deny:
 	cargo deny check
 
-# Mirrors the Rust jobs in .github/workflows/ci.yml; compiler warnings are errors.
+# Offline: needs only python3 and git. The first script proves the checker
+# catches each kind of drift; the second checks the real documentation.
+docs-check:
+	python3 scripts/verify_docs_test.py
+	python3 scripts/verify_docs.py
+
+# Mirrors the jobs in .github/workflows/ci.yml (except Docker); compiler
+# warnings are errors.
 ci: export CARGO_BUILD_WARNINGS = deny
-ci: fmt-check check lint nextest audit deny
+ci: fmt-check docs-check check lint nextest audit deny
 
 docker-build:
 	docker build -t $(IMAGE) .

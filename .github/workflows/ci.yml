@@ -19,7 +19,8 @@ env:
 
 # Rust jobs read the toolchain from rust-toolchain.toml and call the same
 # Makefile targets used locally (`make ci`). setup-rust-toolchain also sets
-# CARGO_BUILD_WARNINGS=deny, so compiler warnings fail the build.
+# CARGO_BUILD_WARNINGS=deny, so compiler warnings fail the build. The docs job
+# needs only python3 and git (preinstalled on the runner).
 jobs:
   fmt:
     name: Formatting
@@ -30,6 +31,13 @@ jobs:
         with:
           cache: false
       - run: make fmt-check
+
+  docs:
+    name: Documentation links
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: make docs-check
 
   check:
     name: Check & Clippy

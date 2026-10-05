@@ -69,6 +69,8 @@ pub struct McpServer {
 
 /// Resolve the authenticated caller attached by the API-key middleware.
 /// Its absence means the router is misconfigured, so it is a server fault.
+// AUTHORITY-BOUNDARY: identity comes from the HTTP layer, never from tool
+// arguments. The model chooses an operation; it cannot choose who it is.
 fn caller(parts: &Parts) -> Result<&ApiKey, AppError> {
     parts
         .extensions
@@ -87,6 +89,8 @@ fn log_outcome<T>(tool: &'static str, result: &Result<T, AppError>) {
     }
 }
 
+// CAPABILITY-BOUNDARY: this impl block is the complete authority an agent
+// has. Adding a tool here is an authority grant, not just an API feature.
 #[tool_router]
 impl McpServer {
     pub fn new(services: Arc<WalletServices>) -> Self {

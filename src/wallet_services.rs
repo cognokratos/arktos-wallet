@@ -56,6 +56,11 @@ pub struct GetEthereumAddressRequest {
 // Responses (public data only)
 // ---------------------------------------------------------------------------
 
+// PUBLIC-ONLY: these types are every successful result a model can receive.
+// They have no secret-bearing fields. `deny_unknown_fields` makes
+// deserialization into these types reject unexpected fields, which also lets
+// tests detect response-shape drift. (Request types do not set it.)
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CreateWalletResponse {
@@ -184,7 +189,8 @@ impl WalletServices {
             });
         }
 
-        // The plaintext phrase is zeroized when `phrase` goes out of scope.
+        // SECRET-BOUNDARY: the only place a new recovery phrase exists in
+        // plaintext. It is sealed and zeroized when `phrase` goes out of scope.
         let encrypted_passphrase = {
             let phrase = wallet_manager::generate_recovery_passphrase()
                 .map_err(|e| AppError::Internal(format!("mnemonic generation: {e}")))?;
@@ -301,8 +307,9 @@ impl WalletServices {
             "Deriving new account"
         );
 
-        // The phrase is zeroized when this block ends; private keys are never
-        // extracted or stored.
+        // SECRET-BOUNDARY: the phrase, seed and extended private keys exist
+        // only inside this block and are zeroized when it ends; only public
+        // data leaves it. Private keys are never extracted or stored.
         let derived = {
             let phrase = crypto::open(self.keys.seed.aead(), &wallet.encrypted_passphrase)
                 .map_err(|e| AppError::Crypto(format!("wallet {}: {e}", wallet.id)))

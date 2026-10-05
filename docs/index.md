@@ -1,172 +1,88 @@
-# Project Documentation Index: Arktos Wallet
+# Arktos Wallet documentation
 
-This document is the master index for all documentation related to the Arktos Wallet project. It is intended to be the primary entry point for developers and AI assistants.
+Arktos is a self-hosted wallet capability blueprint for AI agents. It is a Rust MCP server that lets agents create HD wallets and obtain Bitcoin and Ethereum addresses. Its MCP surface returns no recovery phrase, seed or private key, and it does not sign or broadcast transactions. Whoever operates an instance holds its keys and therefore has effective custody of the stored wallet secrets (see [C4](./capability/04-minimize-secret-lifetimes.md) and the [README](../README.md)).
 
-## 📖 Documentation Sections
+The documentation has three parts:
 
-### 🚀 Project Overview & Quick Start
+| Part | Use it to | Status |
+|---|---|---|
+| [Learn](#learn) | Understand *why* the system is shaped this way: Cryptographic Capability Engineering | Educational layer |
+| [Reference](#reference) | Look up *what* the system does: architecture, contracts, schema | Canonical description |
+| [Operate / Customize](#operate--customize) | Run, deploy, extend and adapt it | How-to guides |
 
-- **[Project Overview](./project-overview.md)** - Executive summary, technology stack, and repository structure
-- **[README.md](../README.md)** - Main project entry point with quick start guide and core features
-- **Type:** Monolithic service
-- **Primary Language:** Rust (2024 edition)
-- **Architecture:** API-centric with MCP (Model Context Protocol) interface
-- **Tech Stack:** Rust, Axum, Tokio, SQLCipher, RMCP SDK
+**Source of truth.** The implementation and its executable verification (tests, `make ci`) are authoritative. The reference documentation is the canonical description of that implementation. The learning material explains why the design exists and defers to the reference documentation. Documentation never overrides executable behavior: if any of these disagree, treat it as documentation drift and fix it.
 
-### 🏗️ Architecture & Design
+## Learn
 
-- **[Architecture](./architecture.md)** - Complete system design, patterns, technology stack decisions, and API design
-- **[Data Models](./data-models.md)** - Database schema, wallet structure, account management, and data relationships
+The Arktos track of the CognoKratos curriculum is **Cryptographic Capability Engineering**: *give agents capabilities, never secrets.*
 
-### 🔌 API & Integration
+- **[Cryptographic Capability Learning Path](./CRYPTOGRAPHIC-CAPABILITY-LEARNING-PATH.md)** is the front door. It covers positioning, prerequisites, stages C1–C8 and the lab setup.
+- [Lessons C1–C8](./capability/README.md): authority, key hierarchies, envelopes, secret lifetimes, deterministic derivation, identity, least-capability tools, recovery.
+- **[Secret Lifecycle Walkthrough](./capability/SECRET-LIFECYCLE-WALKTHROUGH.md)** follows one wallet secret from OS entropy to a public address.
+- [Case Studies](./capability/CASE-STUDIES.md) explain the real architectural decisions and their alternatives.
+- [Challenges](./capability/CHALLENGES.md) are open design problems, including safe transaction signing (future design).
 
-- **[API Contracts](./api-contracts.md)** - HTTP endpoints, MCP tools specification, request/response formats, and error codes
-- **[MCP Tools]** - `ping`, `create_wallet`, `get_bitcoin_address`, `get_ethereum_address` exposed via the stateless MCP `2026-07-28` `/mcp` endpoint
-- **[Health Check]** - `/healthz` endpoint for system monitoring
+Related tracks: [simple-agent-template](https://github.com/cognokratos/simple-agent-template) (production agent engineering), [sophos-agent](https://github.com/cognokratos/sophos-agent) (durable agent runtime engineering) and [etf-research-agent](https://github.com/cognokratos/etf-research-agent) (governed decision engineering).
 
-### 📚 Development & Deployment
+## Reference
 
-- **[Development Guide](./development-guide.md)** - Local setup, building, testing, and debugging instructions
-- **[Deployment Guide](./deployment-guide.md)** - Docker containerization, environment configuration, and production deployment
+- **[Architecture](./architecture.md)**: layers, data architecture, MCP transport, security architecture, the [key hierarchy and secret storage](./architecture.md#key-hierarchy--secret-storage), and scalability
+- **[API Contracts](./api-contracts.md)**: HTTP endpoints, the MCP entrypoint, tool schemas, error codes
+- **[Data Models](./data-models.md)**: the `api_keys`, `wallets` and `accounts` tables, relationships and encryption
+- **[Project Overview](./project-overview.md)**: summary, technology stack and repository structure
+- [SECURITY.md](../SECURITY.md): how to report vulnerabilities
 
-### 🎯 Customization & Extensibility
+## Operate / Customize
 
-- **[Customization Guide](./customization-guide.md)** - Patterns for adding blockchains, custom authentication, storage backends, and extending API
-  - Adding blockchain support (e.g., Solana, Polkadot)
-  - Custom authentication (OAuth2, JWT, mTLS)
-  - Storage backend customization (PostgreSQL, MongoDB)
-  - API extension patterns
-  - Testing customizations
-  - Deployment considerations
+- **[Development Guide](./development-guide.md)**: setup, building, testing, database operations, troubleshooting
+- **[Deployment Guide](./deployment-guide.md)**: Docker, configuration, secret generation, persistence and backups, scaling limits
+- **[Customization Guide](./customization-guide.md)**: adding blockchains, custom authentication, storage backends, extending the API
+- **[Regional Compliance](./regional-compliance.md)**: patterns for GDPR, HIPAA, PCI DSS, SOC 2 and regional frameworks
+- [CONTRIBUTING.md](../CONTRIBUTING.md): the checks every change must pass (`make ci`)
 
-### 🔐 Regional Compliance & Security
+## Getting started paths
 
-- **[Regional Compliance](./regional-compliance.md)** - Compliance frameworks and implementation patterns
-  - GDPR (Europe) - Data minimization, right to deletion, data portability
-  - HIPAA (Healthcare - USA) - Encryption standards, audit logging, access control
-  - PCI DSS (Payment Card Industry) - Security guidelines
-  - SOC 2 (Service Organization Control) - Security, availability, integrity
-  - Custom regional compliance (PDPA, LGPD, etc.)
-  - Encryption key management
-  - Compliance validation and testing
+| I want to… | Read |
+|---|---|
+| Understand what an agent can and cannot do through Arktos | [Learning path](./CRYPTOGRAPHIC-CAPABILITY-LEARNING-PATH.md), then [C1](./capability/01-model-cryptographic-authority.md) |
+| Understand the system at a high level | [README](../README.md), [Project Overview](./project-overview.md), [Architecture](./architecture.md) |
+| Set up a development environment | [Development Guide](./development-guide.md), [Data Models](./data-models.md) |
+| Integrate an MCP client | [API Contracts](./api-contracts.md), [Architecture — API Design](./architecture.md#5-api-design), the protocol tests in `tests/mcp_protocol_tests.rs` |
+| Add a tool or a chain | [C7 — Design least-capability tools](./capability/07-design-least-capability-tools.md) first, then the [Customization Guide](./customization-guide.md) |
+| Deploy to production | [Deployment Guide](./deployment-guide.md), [C8 — Recovery is part of security](./capability/08-recovery-is-part-of-security.md), [Regional Compliance checklist](./regional-compliance.md#8-compliance-deployment-checklist) |
 
----
+## Quick reference
 
-## 🧭 Getting Started Paths
+### MCP tools (the complete agent surface)
 
-### I want to understand Arktos at a high level
-1. Start with [README.md](../README.md)
-2. Read [Project Overview](./project-overview.md)
-3. Explore [Architecture](./architecture.md)
-
-### I want to set up development environment
-1. Read [Development Guide](./development-guide.md)
-2. Review [Data Models](./data-models.md) for database understanding
-
-### I want to integrate with Arktos API
-1. Start with [API Contracts](./api-contracts.md)
-2. Review [Architecture](./architecture.md#section-5-api-design) for design patterns
-3. Check examples in integration tests
-
-### I want to customize Arktos for my needs
-1. Read [Customization Guide](./customization-guide.md)
-2. Review relevant customization section:
-   - Adding blockchain support
-   - Custom authentication
-   - Storage backend adaptation
-3. See pattern examples in guide
-4. Consult [Architecture](./architecture.md) for design principles
-
-### I need to ensure regulatory compliance
-1. Read [Regional Compliance](./regional-compliance.md)
-2. Identify applicable regulations (GDPR, HIPAA, etc.)
-3. Review implementation patterns for your region
-4. Use compliance validation checklist provided
-
-### I want to deploy to production
-1. Read [Deployment Guide](./deployment-guide.md)
-2. Review [Architecture](./architecture.md#section-7-development--deployment) for deployment patterns
-3. Check [Regional Compliance](./regional-compliance.md#8-compliance-deployment-checklist)
-4. Ensure all compliance requirements are met
-
----
-
-## 📋 Quick Reference
-
-### Key Files & Directories
-
-| Path | Purpose |
-|------|---------|
-| `README.md` | Project entry point |
-| `src/main.rs` | Application entry point |
-| `src/db.rs` | Database module |
-| `Cargo.toml` | Project dependencies |
-| `Dockerfile` | Docker build configuration |
-| `docs/` | Complete documentation |
-| `db/migrations/` | Database migration scripts |
-
-### Technology Stack
-
-| Component | Technology | Purpose |
-|-----------|-----------|---------|
-| Language | Rust 2024 edition | Type-safe backend |
-| Framework | Axum 0.8+ | HTTP server |
-| Runtime | Tokio 1.x | Async I/O |
-| Database | SQLite + SQLCipher | Encrypted persistence |
-| Protocol | MCP `2026-07-28` (rmcp 3.x, stateless HTTP) | AI agent integration |
-| Crypto | secp256k1, bip39, bip32 | Blockchain standards |
-| Serialization | Serde 1.x | JSON/binary encoding |
-
-### Core MCP Tools
-
-- `ping` - Liveness check of the MCP tool router
-- `create_wallet` - Create new non-custodial wallet with recovery passphrase
-- `get_bitcoin_address` - BIP86 Taproot address on the configured Bitcoin network (structured result)
-- `get_ethereum_address` - EIP-55 Ethereum address with the configured chain ID (structured result)
+| Tool | Effect |
+|---|---|
+| `ping` | Returns `"pong"` |
+| `create_wallet` | Creates a wallet (12-word BIP39 phrase, stored encrypted) owned by the caller's API key. The phrase is never returned |
+| `get_bitcoin_address` | BIP86 Taproot address on the configured Bitcoin network. Recorded on first use |
+| `get_ethereum_address` | BIP44 Ethereum address, EIP-55 checksummed, with the configured chain ID. Recorded on first use |
 
 ### Endpoints
 
-- `GET /healthz` - Health check
-- `POST /mcp` - MCP `2026-07-28` endpoint, stateless (client API key required)
-- `/admin/api-keys` - API key administration (admin API key required)
+| Endpoint | Auth |
+|---|---|
+| `GET /healthz`, `GET /readyz` | none |
+| `POST /mcp` (MCP `2026-07-28`, stateless) | client API key (`X-API-KEY`) |
+| `/admin/api-keys` | admin API key (`X-API-KEY`) |
+| `/swagger-ui`, `/openapi.json` | none |
 
----
+### Key files
 
-## 🔗 Document Cross-References
-
-### Architecture-Related Questions
-→ See [Architecture](./architecture.md)
-
-### Implementation Details
-→ See [Development Guide](./development-guide.md)
-
-### How to Deploy
-→ See [Deployment Guide](./deployment-guide.md)
-
-### API Integration
-→ See [API Contracts](./api-contracts.md)
-
-### Database Schema
-→ See [Data Models](./data-models.md)
-
-### Adding Features
-→ See [Customization Guide](./customization-guide.md)
-
-### Compliance & Security
-→ See [Regional Compliance](./regional-compliance.md)
-
----
-
-## 📞 Support Resources
-
-For questions or issues:
-1. Check relevant documentation section above
-2. Review [Customization Guide](./customization-guide.md) for implementation patterns
-3. Refer to [Regional Compliance](./regional-compliance.md) for compliance-specific guidance
-4. Check project README for community resources
-
----
-
-**Last Updated:** January 2026
-**Status:** Complete - Ready for Production
-**Arktos Wallet:** Open-source blueprint for AI-controlled non-custodial wallets
+| Path | Purpose |
+|---|---|
+| `src/main.rs` | Entry point: `serve`, `migrate`, `db-info` |
+| `src/app.rs` | HTTP router |
+| `src/mcp.rs` | MCP tool surface |
+| `src/wallet_services.rs` | Wallet use cases and public request/response types |
+| `src/wallet_manager.rs` | BIP39 generation, BIP32 derivation, address encoding |
+| `src/keys.rs`, `src/crypto.rs` | Key hierarchy, AES-256-GCM envelopes |
+| `src/auth.rs`, `src/key_services.rs` | API-key authentication and administration |
+| `src/database.rs`, `src/wallet_store.rs`, `src/key_store.rs` | SQLCipher connection, migrations and stores |
+| `migrations/` | Versioned SQL migrations |
+| `src/bin/secret.rs` | Operator key tool (`make secret`, `make encrypt`, `make decrypt`, `make hash`) |
+| `scripts/verify_docs.py` | Documentation checker (`make docs-check`) |
