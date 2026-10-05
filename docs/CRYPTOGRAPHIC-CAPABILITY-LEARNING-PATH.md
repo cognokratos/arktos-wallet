@@ -63,11 +63,16 @@ State lives in one local SQLCipher database. The MCP tool surface is exactly fou
 | `get_bitcoin_address` | Returns (deriving and recording on first use) a BIP86 Taproot address |
 | `get_ethereum_address` | Returns (deriving and recording on first use) a BIP44 Ethereum address, EIP-55 checksummed |
 
-Arktos does **not** sign transactions, broadcast transactions, sign arbitrary messages, export private keys, export seeds, read balances or talk to any blockchain node. The service never gives an agent the ability to move value. Wherever this path discusses signing, it is labelled **future design**.
+Arktos does **not** sign transactions, broadcast transactions, sign arbitrary messages, read balances or talk to any blockchain node, and its MCP and HTTP APIs do not export private keys, seeds or recovery phrases. No current tool gives an agent the ability to move value. Wherever this path discusses signing, it is labelled **future design**.
 
 Several properties of the current system are easy to overstate, so here they are exactly:
 
-- **Custody.** Arktos is self-hosted. The operator holds `MASTER_KEY` and `DATABASE_KEY`, so no third party is a custodian. The service itself *does* decrypt recovery phrases, briefly, to derive accounts. From the point of view of an API client or an agent, the operator's Arktos instance is the custodian.
+- **Custody.** Four different things are easy to conflate:
+  - *Self-hosted* says who runs the software. The operator holds `MASTER_KEY` and `DATABASE_KEY`.
+  - *Third-party custody* exists when someone other than the wallet owner operates the instance. When the owner runs Arktos and controls the keys, there is no third-party custodian. When one party operates Arktos on behalf of another, that operator has effective custody of the stored wallet secrets. Self-hosted does not mean non-custodial from every participant's perspective.
+  - *Service custody*: the running service decrypts recovery phrases, briefly, to derive accounts. It does have access to wallet secrets.
+  - *Model custody*: none. No MCP tool returns secret material.
+- **Secret access by principal.** The agent cannot obtain a recovery phrase through any tool. The server uses phrases internally on its request path. The operator has separate, deliberate tooling (`make decrypt`, `src/bin/secret.rs`) that can decrypt and print a stored phrase. Capabilities are assigned by principal.
 - **Private keys.** Account private keys exist in process memory for the duration of one derivation. They are **not persisted and not returned**. They do exist.
 - **Statelessness.** The **MCP protocol layer** is stateless: there are no sessions. **Wallet and application state is persistent**, and the SQLCipher deployment is single-instance per database.
 
@@ -102,7 +107,7 @@ flowchart TB
     crypto -- "public data only" --> result
 ```
 
-The model selects an operation. It never holds a key, never supplies its identity, and never receives secret material.
+The model selects an operation. Through the current MCP surface it holds no key, does not supply its identity, and receives no secret material.
 
 ## The path at a glance
 
@@ -161,7 +166,7 @@ Each stage lists the question it asks, the files to read, an experiment, the fai
 ### C4 — Where may plaintext secrets exist?
 
 - **Implementation:** [`src/wallet_manager.rs`](../src/wallet_manager.rs), [`src/wallet_services.rs`](../src/wallet_services.rs)
-- **Experiment:** trace one first-use `get_ethereum_address` call and mark every point where plaintext secret material exists. Then trace a repeat call and notice that no secret is touched at all.
+- **Experiment:** trace one first-use `get_ethereum_address` call and mark every point where plaintext secret material exists. Then trace a repeat call and notice that no plaintext secret material is produced at all.
 - **Failure mode:** confusing *using* a secret with *disclosing* it, or believing that zeroization gives perfect memory secrecy.
 - **Takeaway:** secret use and secret disclosure are different operations.
 - **Reference:** [Architecture — Key Hierarchy & Secret Storage](architecture.md#key-hierarchy--secret-storage)

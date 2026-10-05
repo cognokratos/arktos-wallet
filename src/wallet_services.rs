@@ -57,8 +57,9 @@ pub struct GetEthereumAddressRequest {
 // ---------------------------------------------------------------------------
 
 // PUBLIC-ONLY: these types are every successful result a model can receive.
-// They have no secret-bearing fields, and `deny_unknown_fields` makes clients
-// reject any field beyond the contract.
+// They have no secret-bearing fields. `deny_unknown_fields` makes
+// deserialization into these types reject unexpected fields, which also lets
+// tests detect response-shape drift. (Request types do not set it.)
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]

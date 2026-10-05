@@ -13,7 +13,7 @@ Arktos's core design decisions support compliance requirements:
 | **Access Control** | ✅ API key authentication + ownership model | Role-based access via MCP tokens |
 | **Data Minimization** | ✅ Stateless MCP layer | No session state retained between requests; only public account data stored besides the encrypted phrase |
 | **Secure Communication** | ✅ TLS 1.2+ ready | HTTPS enforced in production |
-| **Key Management** | ✅ Non-custodial model | System owner controls encryption keys |
+| **Key Management** | ✅ Self-hosted custody | Operator controls encryption keys |
 | **Immutable Records** | ✅ SQLite ACID properties | Database transactions ensure consistency |
 
 See [Architecture Document](./architecture.md) for technical details.
@@ -349,9 +349,9 @@ impl HIPAADeploymentConfig {
 - **Vulnerability Management**: Regular assessments and patches
 - **Testing**: Annual penetration testing required
 
-### Note: Arktos is Non-Custodial
+### Note: Arktos Holds No Payment Card Data
 
-**Arktos does NOT store, process, or transmit payment card data.** Wallets are non-custodial—the system owner maintains complete control of private keys and funds.
+**Arktos does NOT store, process, or transmit payment card data.** Wallet keys are controlled by whoever operates the instance; no third party holds them when the wallet owner operates it.
 
 However, if Arktos is integrated with systems that process payments, ensure:
 

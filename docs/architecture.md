@@ -1,6 +1,6 @@
 # Arktos Wallet - Architecture
 
-This document outlines the architecture of the Arktos Wallet application, positioning it as an open-source blueprint for agent-accessible, self-hosted non-custodial wallet services. Agents can create wallets and obtain public addresses; Arktos does not sign or broadcast transactions.
+This document outlines the architecture of the Arktos Wallet application, positioning it as an open-source blueprint for self-hosted wallet capability services for AI agents. Agents can create wallets and obtain public addresses; Arktos does not sign or broadcast transactions.
 
 ## 1. Executive Summary
 
@@ -12,7 +12,7 @@ Arktos serves as an **open-source educational reference implementation** demonst
 
 - **Secure wallet creation** with BIP39/BIP32 cryptographic standards
 - **Multi-account management** for blockchain address derivation
-- **Non-custodial architecture** where system owners control all encryption keys
+- **Self-hosted custody**: the operator controls all encryption keys (no third-party custodian when the wallet owner operates the instance; an operator serving others has effective custody of their stored wallet secrets)
 - **API key authentication** for secure Model Context Protocol (MCP) integration
 - **Two encryption layers**: SQLCipher for the database file, plus AES-256-GCM field encryption of wallet secrets under purpose-specific keys
 - **Production-ready patterns** for deployment, scaling, and compliance
@@ -90,7 +90,7 @@ Arktos follows a **layered API-centric architecture** optimized for:
 
 1. **Stateless Protocol Layer**: No MCP session or transport state is kept between requests; persistent application state (wallets, accounts, API keys) lives in the database
 2. **Security by Default**: All sensitive data encrypted at rest; TLS required in transit
-3. **Non-Custodial Model**: System owner maintains complete control of encryption keys
+3. **Self-Hosted Custody**: The operator controls all encryption keys; the service decrypts wallet secrets transiently, and MCP tools never return them
 4. **Single Responsibility**: Each module handles one concern (wallet management, auth, data access)
 5. **API-First Design**: Core functionality exposed via standardized MCP tools
 6. **Auditability**: All critical operations logged for compliance and debugging
@@ -511,7 +511,7 @@ Arktos architecture supports compliance requirements for various regulations:
 - ✅ Audit logging of all operations
 - ✅ Access control (API key + ownership)
 - ✅ Data minimization (only essential data)
-- ✅ Non-custodial model (system owner controls keys)
+- ✅ Self-hosted custody (operator controls keys)
 - ✅ Stateless MCP protocol layer (no session state; secrets live in memory only as described in [Key Hierarchy & Secret Storage](#key-hierarchy--secret-storage))
 
 See [Regional Compliance](./regional-compliance.md) for detailed patterns and implementation guidance.

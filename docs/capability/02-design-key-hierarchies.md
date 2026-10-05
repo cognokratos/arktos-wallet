@@ -94,7 +94,7 @@ cargo test --doc keys::Keyring
 
 You are about to change `WALLET_SEED_INFO` from `arktos/wallet-seed-encryption/v1` to `arktos/wallet-seed-encryption/v2`. Before running anything, predict:
 
-1. How many tests will fail?
+1. Which *kinds* of tests will fail, and which will stay green?
 2. Will the end-to-end tests that create a wallet and derive an address (`tests/secret_storage_tests.rs`, `tests/mcp_protocol_tests.rs`) fail?
 3. What would happen to a production database the moment the new binary starts?
 
@@ -108,7 +108,15 @@ mv src/keys.rs.bak src/keys.rs   # restore
 
 ### Inspect
 
-Exactly two tests fail: `derived_subkeys_are_pinned` and `existing_ciphertext_opens_only_with_its_own_purpose_label`. **Every integration test passes.** A test that creates a wallet and then reads it back is self-consistent: it seals and opens under the same new label, so it never notices that the label changed. Only tests that **pin** the derivation against an independent value catch the break.
+Sort the results into categories:
+
+| Category | Today's examples | Result |
+|---|---|---|
+| **Derivation-pinning tests**: compare the derived key with an independently computed value | `derived_subkeys_are_pinned` | fail |
+| **Compatibility tests**: open ciphertext produced under the original label | `existing_ciphertext_opens_only_with_its_own_purpose_label` | fail |
+| **Self-consistent round trips**: create a wallet and read it back under the same (modified) label, including the end-to-end tests | most of `tests/secret_storage_tests.rs` and `tests/mcp_protocol_tests.rs` | still pass |
+
+That last row is the lesson. A test that seals and opens under the same new label never notices that the label changed. Only tests that **pin** the derivation, or that read data produced under the old label, catch the break. The test names above are current examples; the categories are what matter.
 
 In production nothing would fail at startup. The server starts and serves every **already-derived** address from its public `accounts` row. Then the first request for a new index fails with an opaque `internal error`, because the existing envelope no longer opens. Changing `API_KEY_HMAC_INFO` instead would be worse and immediate: every client API key stops verifying, and every agent gets `401`.
 

@@ -62,7 +62,7 @@ Before reading each test, predict which `CryptoError` the change produces. Then 
 
 | # | Change | Test | Error class |
 |---|---|---|---|
-| 1 | Encrypt the same plaintext 32 times | `nonces_and_ciphertexts_are_unique` | n/a: every nonce and every ciphertext differs |
+| 1 | Encrypt the same plaintext repeatedly | `nonces_and_ciphertexts_are_unique` | n/a: every nonce and every ciphertext differs |
 | 2 | Flip a bit in the ciphertext (or in the tag at its end) | `modified_ciphertext_fails` | `DecryptionFailed` |
 | 3 | Flip a bit in the nonce | `modified_nonce_fails` | `DecryptionFailed` |
 | 4 | Truncate the nonce to 8 bytes | `wrong_nonce_length_fails` | `InvalidNonce` |

@@ -4,7 +4,7 @@
 
 **Question:** the server's disk dies. What exactly do you need to bring Arktos back on a clean machine with every wallet intact? And what happens when one of those things is missing?
 
-**Prerequisite (optional):** durable state, crash and restart semantics in general are covered in the [sophos-agent runtime path](https://github.com/cognokratos/sophos-agent/blob/main/docs/RUNTIME-LEARNING-PATH.md). This lesson is about the cryptographic side: with encryption, a missing key is not a degraded mode. It is permanent loss.
+**Prerequisite (optional):** durable state, crash and restart semantics in general are covered in the [sophos-agent runtime path](https://github.com/cognokratos/sophos-agent/blob/main/docs/RUNTIME-LEARNING-PATH.md). This lesson is about the cryptographic side: with encryption, a missing key is not a degraded mode. Whatever that key protected is unrecoverable from the encrypted data.
 
 ## Mental model
 
@@ -25,11 +25,13 @@ There are also two non-secret requirements:
 
 ## What each loss means
 
+Every consequence below describes what can be recovered **from Arktos's own data**. "Lost from Arktos storage" is not the same as "provably lost everywhere": an operator may hold an independent backup of a recovery phrase, for example one exported deliberately with the operator tooling (`make decrypt`). The lesson is that Arktos's data alone no longer suffices.
+
 | Lost | Consequence |
 |---|---|
-| Database files | Everything. Recovery phrases are random, not derived from any key, so no key can regenerate them |
-| `DATABASE_KEY` | The file cannot be opened: `cannot read database: DATABASE_KEY is wrong or the file is not an Arktos database`. Everything inside is lost, including the ciphertexts that `MASTER_KEY` could have opened |
-| `MASTER_KEY` | The database opens, but **every recovery phrase is undecryptable** and **every client API key stops verifying**, because the HMAC key is derived from `MASTER_KEY`. Funds at every derived address are permanently unspendable |
+| Database files | Everything Arktos stored. Recovery phrases are random, not derived from any key, so no key can regenerate them |
+| `DATABASE_KEY` | The file cannot be opened: `cannot read database: DATABASE_KEY is wrong or the file is not an Arktos database`. Everything inside is unreadable, including the ciphertexts that `MASTER_KEY` could have opened |
+| `MASTER_KEY` | The database opens, but **every recovery phrase is undecryptable** and **every client API key stops verifying**, because the HMAC key is derived from `MASTER_KEY`. Arktos can no longer recover the private-key hierarchy from its stored data. If no independent backup of a recovery phrase exists, that wallet is not recoverable through Arktos, and any funds controlled solely by that phrase are effectively lost |
 
 ### The dangerous partial failure
 
@@ -41,7 +43,7 @@ The `MASTER_KEY` row has a trap in it. Suppose an operator "recovers" by startin
 4. `get_*_address` for an **already-derived** index **succeeds**: it is served from the public `accounts` row without any decryption.
 5. `get_*_address` for a **new** index fails with `internal error`.
 
-Step 4 is the trap. The service keeps handing out deposit addresses for wallets whose keys no longer exist anywhere. An agent will pass those addresses to payers, and every payment is burned. This exact sequence is pinned in a test:
+Step 4 is the trap. The service keeps handing out deposit addresses for wallets whose private keys it can no longer recover. An agent will pass those addresses to payers. Unless an independent backup of the phrase exists somewhere, payments to them are effectively lost. (Arktos implements no signing today, so even a healthy instance cannot spend; the point is that a correct restore would let the owner recover the phrase and spend elsewhere, and this one cannot.) This exact sequence is pinned in a test:
 
 ```bash
 cargo test --test secret_storage_tests losing_the_master_key_leaves_only_already_public_data_usable
@@ -70,7 +72,7 @@ Fill in this table *before* reading the answer below it.
 | Database only | no | no | no | nothing |
 | `DATABASE_KEY` only | n/a | n/a | n/a | nothing: there is no data |
 | `MASTER_KEY` only | n/a | n/a | n/a | nothing: phrases are random, not derived from `MASTER_KEY` |
-| DB + `DATABASE_KEY` | yes | **no** | **no** | wallet names, owners, public accounts and addresses, i.e. metadata. **No funds**. Re-issued keys give access to [the trap above](#the-dangerous-partial-failure) |
+| DB + `DATABASE_KEY` | yes | **no** | **no** | wallet names, owners, public accounts and addresses, i.e. metadata. **No recovery phrases**, so no access to funds through Arktos. Re-issued keys give access to [the trap above](#the-dangerous-partial-failure) |
 | DB + `MASTER_KEY` | **no** | no, because the envelopes are inside the unreadable file | no | nothing |
 | DB + both keys | yes | yes | yes | everything (with a compatible binary) |
 

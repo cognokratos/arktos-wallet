@@ -1,16 +1,16 @@
 # Arktos Wallet documentation
 
-Arktos is a self-hosted, agent-accessible, non-custodial wallet blueprint. It is a Rust MCP server that lets AI agents create HD wallets and obtain Bitcoin and Ethereum addresses, without ever giving them a recovery phrase, a seed or a private key. It does not sign or broadcast transactions.
+Arktos is a self-hosted wallet capability blueprint for AI agents. It is a Rust MCP server that lets agents create HD wallets and obtain Bitcoin and Ethereum addresses. Its MCP surface returns no recovery phrase, seed or private key, and it does not sign or broadcast transactions. Whoever operates an instance holds its keys and therefore has effective custody of the stored wallet secrets (see [C4](./capability/04-minimize-secret-lifetimes.md) and the [README](../README.md)).
 
 The documentation has three parts:
 
 | Part | Use it to | Status |
 |---|---|---|
 | [Learn](#learn) | Understand *why* the system is shaped this way: Cryptographic Capability Engineering | Educational layer |
-| [Reference](#reference) | Look up *what* the system does: architecture, contracts, schema | **Canonical** |
+| [Reference](#reference) | Look up *what* the system does: architecture, contracts, schema | Canonical description |
 | [Operate / Customize](#operate--customize) | Run, deploy, extend and adapt it | How-to guides |
 
-If the Learn material and the Reference disagree, the Reference and the code win. Please report the discrepancy.
+**Source of truth.** The implementation and its executable verification (tests, `make ci`) are authoritative. The reference documentation is the canonical description of that implementation. The learning material explains why the design exists and defers to the reference documentation. Documentation never overrides executable behavior: if any of these disagree, treat it as documentation drift and fix it.
 
 ## Learn
 

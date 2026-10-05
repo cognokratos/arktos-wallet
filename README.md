@@ -1,10 +1,12 @@
 # Άρκτος Wallet
 
-A **secure, self-hosted, non-custodial wallet capability service for AI agents**: an open-source, educational blueprint that lets agents create HD wallets and obtain Bitcoin and Ethereum addresses through MCP, without the model ever holding a recovery phrase, a seed or a private key.
+A **secure, self-hosted wallet capability service for AI agents**: an open-source, educational blueprint that lets agents create HD wallets and obtain Bitcoin and Ethereum addresses through MCP. The MCP surface never returns a recovery phrase, a seed or a private key, so the model never holds one.
 
 > **Give agents capabilities, never secrets.**
 
-Today an agent can create wallets and derive public addresses. It **cannot** sign or broadcast transactions, sign messages, or export keys or seeds, so Arktos grants no authority to move value. Wallet secrets are encrypted at rest under keys held by the operator, and the service decrypts them only briefly to derive accounts.
+Today an agent can create wallets and derive public addresses. The MCP surface has no tool to sign or broadcast transactions, sign messages, or export keys or seeds, so Arktos gives agents no authority to move value.
+
+**Custody.** Wallet secrets are encrypted at rest under keys held by whoever operates the instance, and the service decrypts a recovery phrase briefly to derive an account. When the wallet owner runs Arktos and controls the keys, there is no third-party custodian. When one party operates Arktos for another, that operator has effective custody of the stored wallet secrets. The model never has custody: it receives no secret material.
 
 ![](docs/bg.png)
 
@@ -12,7 +14,7 @@ Today an agent can create wallets and derive public addresses. It **cannot** sig
 
 Arktos Wallet is a reference implementation that showcases best practices for:
 
-- **Secure Wallet Management**: Self-hosted wallet creation with BIP39/BIP32 cryptographic standards; the operator, not a third party, holds the keys
+- **Secure Wallet Management**: Self-hosted wallet creation with BIP39/BIP32 cryptographic standards; whoever operates the instance holds the keys
 - **Multi-Account Support**: Manage multiple blockchain accounts under a single system owner
 - **Modern MCP**: Stateless [MCP `2026-07-28`](https://modelcontextprotocol.io/specification/2026-07-28) server built on the official `rmcp` 3.x SDK
 - **API Key Authentication**: MCP access protected by per-client API keys; wallets are scoped to the key
@@ -122,21 +124,23 @@ SQLite + SQLCipher is the intended storage for a self-hosted, single-instance de
 - **Two Independent Encryption Layers**: SQLCipher encrypts the database file (`DATABASE_KEY`); recovery phrases are additionally encrypted with AES-256-GCM under keys derived from `MASTER_KEY` via HKDF-SHA256, so database access alone does not reveal them
 - **Key Separation**: API-key hashing and seed encryption each use their own derived key; generate secrets with `make secret`
 - **No Private-Key Storage**: only the encrypted recovery phrase is persisted; account private keys exist only in memory during one derivation and are never stored or returned
-- **Secret Hygiene**: Secrets are zeroized after use where practical and never logged or returned (memory secrecy is best-effort, not absolute)
+- **Secret Hygiene**: Arktos-owned secret buffers are zeroized after use; library-internal copies are outside its control. The server never logs wallet secrets or returns them through MCP or the admin API. Memory secrecy is best-effort, not absolute
 - **Secure Communication**: Terminate TLS 1.2+ in front of Arktos (it serves plain HTTP)
 - **API Key Management**: Only HMAC-SHA256 hashes of API keys are stored
 - **Operation Logging**: Tool calls and wallet operations are logged with API-key ids and public data only
-- **Self-Hosted Custody**: The system owner holds `MASTER_KEY` and `DATABASE_KEY`; no third party holds wallet secrets. The running service decrypts a recovery phrase transiently to derive an account, so whoever operates the instance is its custodian
+- **Operator Custody**: The operator holds `MASTER_KEY` and `DATABASE_KEY`, and the running service decrypts a recovery phrase transiently to derive an account. Self-hosting by the wallet owner means no third-party custodian; operating Arktos for someone else makes the operator their custodian. Operator tooling (`make decrypt`) can deliberately decrypt a stored phrase; agents have no such capability
 
 For security details, see [Architecture — Key Hierarchy & Secret Storage](./docs/architecture.md#key-hierarchy--secret-storage).
 
-## 📊 Performance Characteristics
+## 📊 Performance Targets
+
+These are design targets (non-functional requirements), not benchmarked results. Only address retrieval has an automated check: an in-process smoke test (`test_get_bitcoin_address_performance_requirement` in `tests/integration_tests.rs`). No load or capacity benchmarks are published.
 
 - **Wallet Creation**: < 500ms (p95)
 - **Address Retrieval**: < 100ms (p95)
-- **Concurrency**: 100+ req/s (target, single instance)
+- **Concurrency**: 100+ req/s (single instance)
 - **Database Capacity**: 10,000 wallets, 50,000+ accounts
-- **Uptime Target**: 99.9% (production deployment)
+- **Uptime**: 99.9% (production deployment)
 
 ## 🛠️ Technology Stack
 

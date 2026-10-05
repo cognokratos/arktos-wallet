@@ -130,7 +130,7 @@ An agent reports "your address is `0x9858Ef…`" from a conversation an hour ago
 
 - Asking the model to compute, reformat or recall an address, path or checksum.
 - Letting the model choose the network ("use testnet for this one"), which turns configuration into a prompt-injectable parameter.
-- A second, slightly different path formatter somewhere else in the code. The single `derivation_path` function and the database `CHECK` exist to make this impossible.
+- A second, slightly different path formatter somewhere else in the code. The single `derivation_path` function removes the reason to write one, and the database `CHECK` rejects any non-canonical path that reaches storage.
 - Changing a derivation detail without pinned vectors to catch it. Every address already handed out would silently stop being reproducible.
 
 ## Takeaway

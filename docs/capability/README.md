@@ -1,6 +1,6 @@
 # Cryptographic Capability Engineering — lessons
 
-This directory is the **educational layer** of Arktos. The reference documentation in [`docs/`](../index.md#reference) stays canonical for *what the system does*. These lessons teach *why it is shaped that way*, and what changes when an agent is the caller.
+This directory is the **educational layer** of Arktos. The [reference documentation](../index.md#reference) describes *what the system does*. These lessons teach *why it is shaped that way*, and what changes when an agent is the caller. They defer to the reference documentation, which in turn defers to the code and its tests (see the [source-of-truth order](../index.md)).
 
 Start at the [learning path](../CRYPTOGRAPHIC-CAPABILITY-LEARNING-PATH.md) for positioning, prerequisites and the [lab setup](../CRYPTOGRAPHIC-CAPABILITY-LEARNING-PATH.md#lab-setup).
 

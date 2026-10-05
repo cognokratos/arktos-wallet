@@ -11,7 +11,9 @@ arktos-wallet           → one secret
 
 This walkthrough follows **one wallet recovery phrase** through the real code. It starts as 16 bytes of OS entropy in `create_wallet` and ends as a public Ethereum address returned by `get_ethereum_address`. At every step it records what exists, whether it is secret, where it lives, whether a model could ever see it, what protects it, and how long it lives.
 
-Read it with [`src/wallet_services.rs`](../../src/wallet_services.rs), [`src/wallet_manager.rs`](../../src/wallet_manager.rs) and [`src/crypto.rs`](../../src/crypto.rs) open. The two blocks marked `SECRET-BOUNDARY` are the only places where the plaintext phrase exists.
+Read it with [`src/wallet_services.rs`](../../src/wallet_services.rs), [`src/wallet_manager.rs`](../../src/wallet_manager.rs) and [`src/crypto.rs`](../../src/crypto.rs) open. **In the Arktos server request path, plaintext recovery phrases exist only inside the two regions marked `SECRET-BOUNDARY`.** That scope matters: the operator tool [`src/bin/secret.rs`](../../src/bin/secret.rs) (`make decrypt`) can deliberately decrypt and print a stored phrase. The agent has no such capability; the operator, who already holds `MASTER_KEY`, does. Capabilities are assigned by principal ([lesson 07](07-design-least-capability-tools.md#the-operator-has-capabilities-the-agent-does-not)).
+
+"Dropped and zeroized" below means: Arktos drops the value and zeroizes the buffers it owns. Library-internal copies, such as `bip39::Mnemonic` and `bip32::XPrv` internals, follow their crates' own lifecycle, and nothing here guarantees erasure from memory ([what zeroization does not do](04-minimize-secret-lifetimes.md#what-zeroization-does-not-do)).
 
 ```mermaid
 flowchart TB
@@ -129,7 +131,7 @@ The `SECRET-BOUNDARY` block ends. `phrase` drops, its buffer is overwritten, and
 
 | Value | Secret? | Stored? | Visible to model? | Protected by | Lifetime |
 |---|---:|---:|---:|---|---|
-| Plaintext phrase | yes | **no, and never** | no | n/a | **ended** (subject to the [zeroization limits](04-minimize-secret-lifetimes.md#what-zeroization-does-not-do)) |
+| Plaintext phrase | yes | **no** | no | n/a | **ended**: Arktos-owned buffer zeroized (subject to the [zeroization limits](04-minimize-secret-lifetimes.md#what-zeroization-does-not-do)) |
 
 ### 10. The ciphertext is persisted inside SQLCipher
 
@@ -169,7 +171,7 @@ This is a new, independent HTTP request. The MCP layer is stateless, so nothing 
 
 ### 14. An already-derived account short-circuits
 
-`store.get_account(wallet.id, Network::Ethereum, index)` runs next. If a row exists, the service returns it **and no secret is touched**. Steps 15–22 happen only on the first use of each (wallet, network, index). The server logs `Deriving new account` exactly when they do.
+`store.get_account(wallet.id, Network::Ethereum, index)` runs next. If a row exists, the service returns it **and decrypts nothing**: no plaintext secret material is produced. Steps 15–22 happen only on the first use of each (wallet, network, index). The server logs `Deriving new account` exactly when they do.
 
 | Value | Secret? | Stored? | Visible to model? | Protected by | Lifetime |
 |---|---:|---:|---:|---|---|
@@ -197,9 +199,10 @@ This is a new, independent HTTP request. The MCP layer is stateless, so nothing 
 
 | Value | Secret? | Stored? | Visible to model? | Protected by | Lifetime |
 |---|---:|---:|---:|---|---|
+| `bip39::Mnemonic` (parsed copy) | **yes** | no | no | process isolation only: **library-owned, not zeroized** in this build | until the seed block ends |
 | Seed | **yes** | no | no | `Zeroizing` | until the next step |
 
-### 18. The BIP32 root key is created and the seed destroyed
+### 18. The BIP32 root key is created and the seed zeroized
 
 `XPrv::new(seed)` creates the root key. Then `drop(seed)` runs. The seed is the shortest-lived secret in the system.
 
@@ -213,12 +216,12 @@ This is a new, independent HTTP request. The MCP layer is stateless, so nothing 
 
 | Value | Secret? | Stored? | Visible to model? | Protected by | Lifetime |
 |---|---:|---:|---:|---|---|
-| Intermediate and account extended private keys | **yes** | **no, never** | no | process isolation | one derivation step each; the account key until step 20 |
+| Intermediate and account extended private keys | **yes** | **no** | no | process isolation; crate-specific wiping (`bip32`/`k256`) | one derivation step each; the account key until step 20 |
 | Derivation path | no | yes | yes | DB `CHECK` constraint | permanent |
 
 ### 20. The public key is extracted and the private hierarchy dropped
 
-`xprv.public_key().to_bytes()` produces the 33-byte compressed public key. `drop(xprv)` follows immediately. **The account private key is never extracted into a variable of its own.**
+`xprv.public_key().to_bytes()` produces the 33-byte compressed public key. `drop(xprv)` follows immediately. **The account private key is not extracted into an Arktos variable of its own**; it exists only inside the library's `XPrv` until that is dropped.
 
 | Value | Secret? | Stored? | Visible to model? | Protected by | Lifetime |
 |---|---:|---:|---:|---|---|
@@ -263,20 +266,21 @@ The derivation `SECRET-BOUNDARY` block ends. Only `AccountData { derivation_path
 
 | Value | Secret? | Stored? | Model-visible? | Protected by | Lifetime |
 |---|---:|---:|---:|---|---|
-| Entropy | yes | no | no | `Zeroizing` | one function call |
-| Mnemonic plaintext | yes | no | no | `Zeroizing`, redacted `Debug` | a creation or derivation block |
+| Entropy | yes | no | no | `Zeroizing` (Arktos-owned) | one function call |
+| `RecoveryPhrase` formatted string | yes | no | no | `Zeroizing`, redacted `Debug` (Arktos-owned) | a creation or derivation `SECRET-BOUNDARY` block |
+| `bip39::Mnemonic` internal representation | yes | no | no | process isolation only: library-owned, **not guaranteed zeroized** | inside a creation or derivation block |
 | Encrypted envelope | secret-bearing | yes | no | `WalletSeedKey` + SQLCipher | permanent |
-| Seed | yes | no | no | `Zeroizing` | microseconds |
-| Extended private keys | yes | no | no | process isolation | one derivation |
-| Account private key | yes | **never** | no | never extracted | one derivation |
+| BIP39 seed | yes | no | no | `Zeroizing` (Arktos-owned) | microseconds |
+| BIP32 `XPrv` and intermediate private material | yes | no | no | process isolation; library-owned, crate-specific wiping | one derivation |
+| Account private key | yes | **not persisted** | no | not extracted from `XPrv`, not returned | one derivation |
 | Public key, path, address | no | yes | yes | n/a | permanent |
 | `MASTER_KEY`-derived subkeys | yes | no | no | process isolation | process lifetime |
 
 Three facts make the design work:
 
-1. **Exactly one secret is persisted**: the encrypted phrase. Everything else secret is re-derived when it is needed and destroyed afterwards.
-2. **The plaintext exists only inside two code blocks**, and neither block can return anything secret, because the values they evaluate to are a ciphertext `String` and the public `AccountData`.
-3. **A repeat call touches no secret at all.**
+1. **Exactly one wallet secret is persisted**: the encrypted phrase. Every other wallet secret is re-derived when it is needed and dropped afterwards, its lifetime intentionally shortened.
+2. **On the server request path, the plaintext exists only inside two code blocks**, and neither block can return anything secret, because the values they evaluate to are a ciphertext `String` and the public `AccountData`.
+3. **A repeat call decrypts nothing**: it loads the envelope but produces no plaintext secret material.
 
 ## Questions
 

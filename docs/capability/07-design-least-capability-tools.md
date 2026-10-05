@@ -11,16 +11,16 @@
 The authority of a tool is the **set of effects reachable through its arguments**, not what its name promises. Three properties make that set small:
 
 1. **Specific operations.** The tool's name and its schema fix *what* happens. The arguments select only *which* resource, within a range the server enforces.
-2. **Typed, closed contracts.** Inputs and outputs are typed, validated and schema-described. The server decides the output shape, never the caller.
+2. **Typed, schema-described contracts.** Inputs and outputs are typed, validated and schema-described. The server decides the output shape, never the caller.
 3. **Public-only results.** Nothing value-bearing comes back, whatever the arguments.
 
 ## How Arktos tools are built
 
 | Property | Where | Effect |
 |---|---|---|
-| Typed requests | `CreateWalletRequest`, `GetBitcoinAddressRequest`, `GetEthereumAddressRequest` in [`src/wallet_services.rs`](../../src/wallet_services.rs) | Two fields at most: `wallet_name` (validated `WalletName`) and `account_index` (`0..=2^31-1`, enforced by `DerivationIndex` and declared in the schema) |
-| Typed responses | `CreateWalletResponse`, `BitcoinAddressResponse`, `EthereumAddressResponse`, marked `PUBLIC-ONLY` | No secret-bearing field exists to fill. `deny_unknown_fields` makes a typed client reject anything beyond the contract |
-| Generated JSON Schema | `schemars` derives, published by `rmcp` as `inputSchema` and `outputSchema` | The model sees exactly the contract the server enforces. There is no hand-written schema to drift from the code |
+| Typed requests | `CreateWalletRequest`, `GetBitcoinAddressRequest`, `GetEthereumAddressRequest` in [`src/wallet_services.rs`](../../src/wallet_services.rs) | Two fields at most: `wallet_name` (validated `WalletName`) and `account_index` (`0..=2^31-1`, enforced by `DerivationIndex` and declared in the schema). Request types do not use `deny_unknown_fields`: unknown arguments are currently ignored, not rejected, and none of them can select an identity ([lesson 06](06-bind-identity-to-capability.md#break-try-to-choose-an-identity-in-the-arguments)) |
+| Typed responses | `CreateWalletResponse`, `BitcoinAddressResponse`, `EthereumAddressResponse`, marked `PUBLIC-ONLY` | No secret-bearing field exists to fill. `deny_unknown_fields` makes deserialization into these Rust response types reject unexpected fields, which lets the tests detect response-shape drift |
+| Generated JSON Schema | `schemars` derives, published by `rmcp` as `inputSchema` and `outputSchema` | The schema is generated from the same types the server deserializes into, so there is no hand-written schema to drift from the code |
 | Structured content | `Json<…>` returns in [`src/mcp.rs`](../../src/mcp.rs) | Results are data, not prose for the model to parse |
 | Honest descriptions | `#[tool(description = …)]` | Side effects are stated ("Creates state", "the account is recorded on first use") along with what is *not* returned ("the recovery phrase is never returned") |
 | Two error channels | `AppError` in [`src/error.rs`](../../src/error.rs) | Client errors (`invalid_argument`, `not_found`, `already_exists`) are tool results the model can act on. Server faults are an opaque `-32603` |

@@ -26,7 +26,7 @@ The complete agent surface is the `#[tool_router] impl McpServer` block in [`src
 |---|---|---|---|---|
 | `ping` | no | no | no | none |
 | `create_wallet` | **yes**: generates a recovery phrase from OS entropy and seals it with `WalletSeedKey` | **yes**: one `wallets` row, owned by the caller's API key | no; returns `wallet_id`, `wallet_name`, `created_at` | none. It creates keys that *could later* receive funds, but there is no signing or spending path |
-| `get_bitcoin_address` | **only on first use** of a (wallet, network, index): decrypts the phrase and derives transiently. Repeat calls read a public row and touch no secret | **first use only**: one `accounts` row | no; returns address, public key, path, network, index | none. It hands out a receive address |
+| `get_bitcoin_address` | **only on first use** of a (wallet, network, index): decrypts the phrase and derives transiently. Repeat calls read a public row and decrypt nothing | **first use only**: one `accounts` row | no; returns address, public key, path, network, index | none. It hands out a receive address |
 | `get_ethereum_address` | same as above | same as above | same as above (address EIP-55 checksummed, configured chain ID reported) | none. It hands out a receive address |
 
 Things the table does not show, but which you should notice:
@@ -68,21 +68,26 @@ Approval tokens, consent records and governed decisions are taught elsewhere. Se
 
 ## The capability escalation ladder
 
+The ladder orders capabilities by **increasing potential consequence**. It is not a strict ordering of privileges, where holding one rung implies holding the ones below.
+
 ```mermaid
 flowchart BT
     a["Read a public address<br/><b>implemented</b><br/>get_bitcoin_address / get_ethereum_address"]
     b["Create a wallet<br/><b>implemented</b><br/>create_wallet"]
     c["Sign a structured challenge<br/><i>future design</i><br/>proves control; authority bounded by message structure"]
-    d["Sign a transaction<br/><i>future design</i><br/>authorizes value transfer"]
-    e["Broadcast a transaction<br/><i>future design</i><br/>irreversible effect in the world"]
-    a --> b --> c --> d --> e
+    d["Sign a transaction<br/><i>future design</i><br/>creates an authorization artifact"]
+    e["Broadcast a transaction<br/><i>future design</i><br/>causes an irreversible external effect"]
+    a --> b --> c --> d
+    d -. "signed artifact: often broadcastable by anyone who holds it" .-> e
     classDef now fill:#d7f0dd,stroke:#2e7d32,color:#000
     classDef future fill:#fdecea,stroke:#c62828,color:#000,stroke-dasharray: 5 5
     class a,b now
     class c,d,e future
 ```
 
-Each rung up adds authority and adds requirements: structure, policy, consent, replay protection and audit. **Arktos stops at the second rung.** The dashed rungs do not exist.
+Each rung up raises the potential consequence and adds requirements: structure, policy, consent, replay protection and audit. **Arktos stops at the second rung.** The dashed rungs do not exist.
+
+The last step is drawn differently on purpose. Signing and broadcasting are different authority classes. Signing *creates an authorization artifact*. Broadcasting *causes an external, irreversible effect*. A signed transaction can often be broadcast by anyone who obtains it, so a signing capability without a broadcast capability does not contain the effect: whoever receives the artifact holds the next rung.
 
 ## Experiments
 
@@ -103,7 +108,7 @@ Before you look, write down every field you think `create_wallet` returns. Then 
 cargo test --test mcp_protocol_tests responses_contain_no_secret_fields
 ```
 
-That test fails if any structured result has a field whose name contains `mnemonic`, `passphrase`, `seed`, `private_key` or similar. It also decodes each result with `deny_unknown_fields`, so a field beyond the contract would be caught too.
+That test fails if any structured result has a field whose name contains `mnemonic`, `passphrase`, `seed`, `private_key` or similar. It also deserializes each result into its Rust response type, which uses `deny_unknown_fields`, so an unexpected response field would make the test fail too.
 
 ### Break (on paper): add one tool
 

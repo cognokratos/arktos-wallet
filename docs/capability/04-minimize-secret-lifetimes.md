@@ -11,9 +11,9 @@ Sort every value in the system into one of three classes:
 | Class | Arktos values | Rule |
 |---|---|---|
 | **Persistent secret** | The encrypted recovery phrase (`wallets.encrypted_passphrase`) | Stored only as ciphertext, inside an encrypted file |
-| **Temporary secret** | Plaintext recovery phrase, BIP39 seed, BIP32 extended private keys (including the account private key) | Exists only inside one bounded block of code, then dropped and zeroized |
+| **Temporary secret** | Plaintext recovery phrase, `bip39::Mnemonic`, BIP39 seed, BIP32 extended private keys (including the account private key) | On the server request path, exists only inside one bounded block of code, then dropped. Arktos zeroizes the buffers it owns; library-internal copies follow the library's own lifecycle |
 | **Public data** | Derivation path, account index, public key, address, network, wallet name and id | May be stored, logged and returned |
-| **Not persisted, ever** | Account private keys | Re-derived from the phrase when needed; never written, never returned |
+| **Not persisted** | Account private keys | Exist transiently during derivation; re-derived from the phrase when needed; not written to storage and not returned |
 
 The design goal is not "never touch a secret". To produce an address you *must* use one. The goal is that **use happens inside the service, in the smallest scope possible, and the only thing that crosses back to the caller is public.**
 
@@ -36,7 +36,7 @@ plaintext recovery phrase ─────────────── temporar
    ↓ BIP32
 master extended private key
    ↓ BIP32 child derivation along the path
-account extended private key ──────────── temporary secret (never extracted)
+account extended private key ──────────── temporary secret (not extracted)
    ↓
 compressed public key ─────────────────── public
    ↓ BIP86 tweak + bech32m  |  Keccak-256 + EIP-55
@@ -45,27 +45,39 @@ address ────────────────────────
 
 ## In the code
 
-The temporary-secret scopes are the two blocks marked `SECRET-BOUNDARY` in [`src/wallet_services.rs`](../../src/wallet_services.rs):
+**In the Arktos server request path, plaintext recovery phrases exist only inside the two regions marked `SECRET-BOUNDARY`** in [`src/wallet_services.rs`](../../src/wallet_services.rs):
 
 - **Creation** (`create_wallet`): `phrase` is created and sealed inside a `{ … }` block. The block evaluates to the envelope `String`. The phrase is dropped, and zeroized, at the closing brace, *before* the database write starts.
 - **Derivation** (`account`): the decrypted phrase and all derivation happen inside one block, which evaluates to `AccountData`. That struct has only public fields (`derivation_path`, `public_key`, `address`).
 
+That statement is scoped to the server on purpose. Arktos also ships operator tooling, [`src/bin/secret.rs`](../../src/bin/secret.rs), whose `decrypt` command (`make decrypt`) deliberately decrypts a stored envelope and prints the phrase:
+
+```text
+server capability surface   the agent cannot obtain a phrase; the server uses it internally
+operator tooling            a trusted operator holding MASTER_KEY can decrypt a phrase on purpose
+```
+
+This reinforces the course principle rather than weakening it: capabilities are assigned by principal, and the operator has capabilities the agent does not ([lesson 07](07-design-least-capability-tools.md#the-operator-has-capabilities-the-agent-does-not)).
+
 Inside [`src/wallet_manager.rs`](../../src/wallet_manager.rs):
 
-| Value | Container | When it is destroyed |
+| Value | Owner and container | Lifetime handling |
 |---|---|---|
-| 16 bytes of entropy | `Zeroizing<[u8; 16]>` | When `generate_recovery_passphrase` returns |
-| Phrase text | `RecoveryPhrase(Zeroizing<String>)`, pre-sized to `MAX_PHRASE_LEN` so formatting never reallocates and leaves a stray copy | When the `SECRET-BOUNDARY` block ends |
-| Decrypted bytes | `crypto::open` returns `Zeroizing<Vec<u8>>`. `RecoveryPhrase::from_utf8` takes ownership **without copying** | Same |
-| Seed | `Zeroizing<[u8; 64]>` | Explicit `drop(seed)` immediately after `XPrv::new` |
-| Extended private keys | `bip32::XPrv`, reassigned at each child step | Explicit `drop(xprv)` as soon as the public key bytes are taken |
-| Account private key | Inside the final `XPrv` | Never extracted, so there is nothing to leak beyond that value |
+| 16 bytes of entropy | Arktos: `Zeroizing<[u8; 16]>` | Zeroized when `generate_recovery_passphrase` returns |
+| `bip39::Mnemonic` (parsed words) | **Library-owned** | Dropped at the end of the scope that built it. Not zeroized by this build (the crate's zeroize feature is not enabled) |
+| Phrase text | Arktos: `RecoveryPhrase(Zeroizing<String>)`, pre-sized to `MAX_PHRASE_LEN` so formatting does not reallocate and leave a stray copy of that buffer | Zeroized when the `SECRET-BOUNDARY` block ends |
+| Decrypted bytes | Arktos: `crypto::open` returns `Zeroizing<Vec<u8>>`. `RecoveryPhrase::from_utf8` takes ownership **without copying** | Same |
+| Seed | Arktos: `Zeroizing<[u8; 64]>` | Explicit `drop(seed)`, zeroizing it, immediately after `XPrv::new` |
+| Extended private keys | **Library-owned**: `bip32::XPrv`, reassigned at each child step | Explicit `drop(xprv)` as soon as the public key bytes are taken. Whether and how the scalar and chain code are wiped is up to the `bip32`/`k256` crates |
+| Account private key | Inside the final `XPrv` | Not extracted into an Arktos variable, not persisted, not returned |
+
+The strongest honest summary: **Arktos intentionally shortens secret lifetimes. It zeroizes buffers it owns, and library-internal copies are outside its control.** Nothing here guarantees that a secret is erased from memory.
 
 Secret-bearing types also **redact themselves**: `RecoveryPhrase`, `MasterKey`, `ApiKeyHmacKey`, `AeadKey`, `Config` and the `Wallet` record all print `[REDACTED]` in `Debug`. That matters because the most common way secrets leak is through a well-meant `tracing::debug!(?value)`.
 
 ## What zeroization does not do
 
-Zeroization overwrites a buffer *that you own* when it is dropped. That shortens the window during which a memory disclosure (a heap-read bug, a crash dump, a debugger) can find the secret. It does **not** give memory secrecy, and the code comments say so. Specifically:
+Zeroization is hygiene, not a security boundary. It overwrites a buffer *that you own* when it is dropped. That shortens the window during which a memory disclosure (a heap-read bug, a crash dump, a debugger) can find the secret. It does **not** give memory secrecy, and the code comments say so. Specifically:
 
 - **Library-internal copies.** `bip39::Mnemonic` holds the parsed words, and this build does not enable that crate's zeroize feature. Its normalization step may allocate as well. `bip32` chain codes are outside Arktos's control. The module comment in [`src/wallet_manager.rs`](../../src/wallet_manager.rs) states this.
 - **Compiler and allocator copies.** Moves can leave copies on the stack, a reallocation can leave an old buffer behind, and nothing zeroizes freed allocator pages that a value previously occupied.
@@ -73,7 +85,7 @@ Zeroization overwrites a buffer *that you own* when it is dropped. That shortens
 - **Client API keys in transit.** The `X-API-KEY` header value is copied into an ordinary `String` during authentication, and the HTTP stack's header buffers are not zeroized.
 - **The operating system.** Swap, hibernation images, core dumps and `ptrace`/`/proc/<pid>/mem` access by a sufficiently privileged user can all see process memory.
 
-So zeroization is **hygiene that shrinks windows**. It is not a boundary. The boundaries are process isolation, the operator's control of the host, and the fact that no code path *sends* the secret anywhere. To harden further you need deployment controls: disable core dumps, encrypt or disable swap, run as a dedicated user, use no debugger in production. Alternatively, move the secret into a separate process or device ([Challenge 4](CHALLENGES.md#challenge-4--hsmkms-backed-keys), [Challenge 6](CHALLENGES.md#challenge-6--separate-signing-service)).
+So zeroization is **hygiene that shrinks windows**. It is not a boundary. The boundaries are process isolation, the operator's control of the host, and the fact that no server code path *sends* a wallet secret anywhere. To harden further you need deployment controls: disable core dumps, encrypt or disable swap, run as a dedicated user, use no debugger in production. Alternatively, move the secret into a separate process or device ([Challenge 4](CHALLENGES.md#challenge-4--hsmkms-backed-keys), [Challenge 6](CHALLENGES.md#challenge-6--separate-signing-service)).
 
 ## Experiments
 
