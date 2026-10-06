@@ -2,7 +2,8 @@
 name = "arktos-wallet"
 version = "0.1.0"
 edition = "2024"
-# No license has been chosen yet (see README); never publish to crates.io by accident.
+license = "MIT"
+# Not a library for crates.io; never publish by accident.
 publish = false
 
 [dependencies]

@@ -28,7 +28,7 @@ exceptions = [
     # MIT + no-false-attribs; required transitively by `bitcoin`.
     { allow = ["MITNFA"], crate = "hex_lit" },
 ]
-# The crate itself has no license yet (publish = false); see README.
+# The crate itself is MIT and unpublished (publish = false); skip it here.
 private = { ignore = true }
 
 [bans]

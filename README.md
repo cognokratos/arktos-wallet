@@ -165,7 +165,7 @@ Arktos Wallet is an open-source educational project. Contributions, forks, and a
 
 ## 📝 License
 
-> **TODO (repository owner):** No license has been chosen yet. Until a `LICENSE` file is added, no license is granted and default copyright applies. A license must be selected before any release. The crate is marked `publish = false` in the meantime.
+The original code and documentation in this repository are released under the [MIT License](LICENSE) (Copyright (c) 2026 Victor Nitu). The banner image (`docs/bg.png`) is a project brand asset and is not covered by the MIT grant. Dependencies are used under their own licences; `deny.toml` lists the licences the dependency tree may use. The crate stays `publish = false`: that prevents accidental publication to crates.io and is not a licence setting.
 
 ## 🆘 Support & Community
 
