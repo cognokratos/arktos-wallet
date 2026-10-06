@@ -44,7 +44,7 @@ sha2 = "0.11"
 http = "1.4.0"
 base64 = "0.22.1"
 clap = { version = "4.5.54", features = ["derive"] }
-utoipa = "5"
+utoipa = "6"
 
 # Cryptographic boundary (RustCrypto + OS RNG); see src/keys.rs and src/crypto.rs
 aes-gcm = { version = "0.11.1", default-features = false, features = ["aes", "alloc", "zeroize"] }
