@@ -10,6 +10,22 @@ Today an agent can create wallets and derive public addresses. The MCP surface h
 
 ![](docs/bg.png)
 
+## Where Arktos fits in CognoKratos
+
+Arktos is **Part IV — Cryptographic Capability Engineering** in the current
+[CognoKratos curriculum](https://github.com/cognokratos/.github/blob/main/CURRICULUM.md).
+It asks how autonomous software can use cryptographic infrastructure without the
+model becoming the holder of cryptographic authority.
+
+This track deliberately stops before signing. That boundary is educational: it
+lets the curriculum separate **public capability** from **authority to move
+value** before exploring secure signing, delegated authority, settlement and
+reconciliation as open research frontiers.
+
+> **Core lesson:** Give agents capabilities, never secrets.
+
+The repository is a laboratory, not a claim that one custody model is universally correct. Read the [CognoKratos foundation](https://github.com/cognokratos/.github/blob/main/FOUNDATION.md), follow the structured synthesis in the [CognoKratos Book](https://book.cognokratos.com/part-4/introduction.html), or help [challenge and extend the curriculum](https://github.com/cognokratos/.github/blob/main/CONTRIBUTING.md).
+
 ## Architecture at a glance
 
 ![Arktos Wallet cryptographic capability architecture](docs/assets/arktos-wallet-architecture.svg)
@@ -30,16 +46,17 @@ Arktos Wallet is a reference implementation that showcases best practices for:
 
 ## 🎓 Learn
 
-The CognoKratos projects are four distinct learning tracks:
+Arktos is one laboratory in the living CognoKratos curriculum:
 
-| If you want… | Go to |
+| Track | Engineering question |
 |---|---|
-| Production agent engineering | [simple-agent-template](https://github.com/cognokratos/simple-agent-template) |
-| Durable agent runtime and state | [sophos-agent](https://github.com/cognokratos/sophos-agent) |
-| Governed decision systems | [etf-research-agent](https://github.com/cognokratos/etf-research-agent) |
-| **Cryptographic capability engineering** | **[Arktos learning path](./docs/CRYPTOGRAPHIC-CAPABILITY-LEARNING-PATH.md)** |
+| [Part I — Production Agent Engineering](https://github.com/cognokratos/simple-agent-template) | How do we build and bound an agent around an untrusted probabilistic component? |
+| [Part II — Durable Agent Runtime Engineering](https://github.com/cognokratos/sophos-agent) | How does an agent survive time, crashes and replay? |
+| [Part III — Governed Decision Engineering](https://github.com/cognokratos/etf-research-agent) | How do deterministic policy and human authority constrain probabilistic reasoning? |
+| **Part IV — Cryptographic Capability Engineering** | **How can an agent request cryptographic capabilities without becoming custodian of the secrets behind them?** |
+| [Part V — Agentic Financial Workflow Engineering](https://github.com/cognokratos/tauros-revenue) | How can agents do financial work while humans retain financial authority? |
 
-The Arktos track asks how probabilistic software can request cryptographic operations without the model becoming the custodian of cryptographic authority. It covers key hierarchies, versioned envelopes, secret lifetimes, deterministic derivation, out-of-band identity, least-capability tools and recovery, all grounded in this codebase. Start with the [secret lifecycle walkthrough](./docs/capability/SECRET-LIFECYCLE-WALKTHROUGH.md) if you have 30 minutes.
+The Arktos track covers key hierarchies, versioned envelopes, secret lifetimes, deterministic derivation, out-of-band identity, least-capability tools and recovery, all grounded in this codebase. Start with the [secret lifecycle walkthrough](./docs/capability/SECRET-LIFECYCLE-WALKTHROUGH.md) if you have 30 minutes.
 
 ## 🚀 Quick Start
 
@@ -121,7 +138,7 @@ Extend the architecture to support additional blockchains (e.g., Solana, Polkado
 Replace API key authentication with your identity provider (e.g., OAuth2, JWT, mTLS). The modular security layer allows seamless substitution. See [Customization Guide](./docs/customization-guide.md#2-custom-authentication).
 
 ### Adapt for Regional Compliance
-The architecture supports encryption and audit logging requirements for GDPR, HIPAA, and other regulations. See [Regional Compliance](./docs/regional-compliance.md) for guidance.
+The architecture includes encryption and audit-oriented patterns that can be adapted to organizational or regional requirements. See [Regional Compliance](./docs/regional-compliance.md) for design considerations; the project itself is not a compliance certification.
 
 ### Customize Database & Storage
 SQLite + SQLCipher is the intended storage for a self-hosted, single-instance deployment. Persistence is isolated in `Database`, `KeyStore` and `WalletStore`, so another backend can replace them while keeping the same API contract.
@@ -163,12 +180,14 @@ These are design targets (non-functional requirements), not benchmarked results.
 
 ## 🤝 Contributing
 
-Arktos Wallet is an open-source educational project. Contributions, forks, and adaptations are encouraged!
+Arktos Wallet is an open-source educational project. Contributions, forks, and adaptations are encouraged.
+
+For the CognoKratos curriculum, especially valuable contributions include new adversarial cases, stronger custody/threat models, alternative secret-lifecycle designs, experiments around revocation, or research prototypes for secure signing and delegated authority that make their assumptions explicit.
 
 - **For enhancements**: Open issues and pull requests — see [CONTRIBUTING.md](./CONTRIBUTING.md)
+- **For curriculum contributions**: See the organization-level [CognoKratos contribution model](https://github.com/cognokratos/.github/blob/main/CONTRIBUTING.md)
 - **For security issues**: Report privately as described in [SECURITY.md](./SECURITY.md); do not open public issues
 - **For custom implementations**: This repository serves as a reference—fork and adapt it to your specific needs
-- **For compliance work**: See [Regional Compliance Guide](./docs/regional-compliance.md) for patterns and considerations
 
 ## 📝 License
 
@@ -179,7 +198,8 @@ The original code and documentation in this repository are released under the [M
 - **Documentation**: See [docs/](./docs/) for comprehensive guides
 - **Issues**: Report bugs or request features via GitHub Issues
 - **Discussions**: Join discussions for implementation patterns and architectural questions
+- **Book**: Read [Part IV — Cryptographic Capability Engineering](https://book.cognokratos.com/part-4/introduction.html)
 
 ---
 
-**Arktos Wallet is a blueprint—not a one-size-fits-all solution. Customize, extend, and adapt it for your regional and organizational needs.**
+**Arktos Wallet is a blueprint—not a one-size-fits-all solution. Inspect it, challenge it, and extend the curriculum where its boundaries stop.**
