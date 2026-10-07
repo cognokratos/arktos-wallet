@@ -10,6 +10,12 @@ Today an agent can create wallets and derive public addresses. The MCP surface h
 
 ![](docs/bg.png)
 
+## Architecture at a glance
+
+![Arktos Wallet cryptographic capability architecture](docs/assets/arktos-wallet-architecture.svg)
+
+The architectural boundary is the capability surface: the agent chooses a typed operation and receives public data, while caller identity, key hierarchy, encrypted wallet secrets and transient private material stay inside the trusted service/operator domain. See the [architecture overview](./docs/architecture-overview.md) for the diagram explained as a trust model.
+
 ## 🎯 What is Arktos Wallet?
 
 Arktos Wallet is a reference implementation that showcases best practices for:
@@ -87,6 +93,7 @@ For deployment details, see [Deployment Guide](./docs/deployment-guide.md).
 
 ### Project Overview
 - **[Project Overview](./docs/project-overview.md)** - High-level introduction and technology stack
+- **[Architecture Overview](./docs/architecture-overview.md)** - Visual trust and capability model
 - **[Architecture](./docs/architecture.md)** - System design, patterns, and technical decisions
 
 ### Development & Deployment

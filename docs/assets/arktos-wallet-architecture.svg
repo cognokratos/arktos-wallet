@@ -1,0 +1,106 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="980" viewBox="0 0 1600 980">
+<defs>
+  <marker id="arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+    <path d="M0 0 L10 5 L0 10 Z" fill="#8B949E"/>
+  </marker>
+  <marker id="green" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+    <path d="M0 0 L10 5 L0 10 Z" fill="#3FB950"/>
+  </marker>
+  <marker id="red" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+    <path d="M0 0 L10 5 L0 10 Z" fill="#F85149"/>
+  </marker>
+  <marker id="gold" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+    <path d="M0 0 L10 5 L0 10 Z" fill="#D29922"/>
+  </marker>
+</defs>
+<rect width="1600" height="980" fill="#0D1117"/>
+
+<text x="60" y="58" font-family="Arial, Helvetica, sans-serif" font-size="38" font-weight="800" fill="#F0F6FC" text-anchor="start">Άρκτος Wallet</text>
+<text x="60" y="94" font-family="Arial, Helvetica, sans-serif" font-size="19" font-weight="400" fill="#8B949E" text-anchor="start">Cryptographic capability architecture for AI agents</text>
+<rect x="1240" y="34" width="300" height="38" rx="19" fill="#0F2419" stroke="#2EA043" stroke-width="2"/>
+<text x="1390" y="59" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#7EE787" text-anchor="middle">CAPABILITIES, NEVER SECRETS</text>
+<rect x="40" y="130" width="300" height="560" rx="24" fill="#10161D" stroke="#2B3540" stroke-width="2"/>
+<text x="65" y="165" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="800" fill="#79C0FF" text-anchor="start">MODEL-VISIBLE</text>
+<text x="65" y="192" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="400" fill="#8B949E" text-anchor="start">Agent can request and receive</text>
+<rect x="370" y="130" width="790" height="560" rx="24" fill="#0F1C15" stroke="#2EA043" stroke-width="2"/>
+<text x="395" y="165" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="800" fill="#7EE787" text-anchor="start">TRUSTED ARKTOS SERVICE</text>
+<text x="395" y="192" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="400" fill="#8ECF9D" text-anchor="start">Rust · Axum · stateless MCP · owner-scoped operations</text>
+<rect x="1190" y="130" width="370" height="560" rx="24" fill="#171113" stroke="#63383D" stroke-width="2"/>
+<text x="1215" y="165" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="800" fill="#FF7B72" text-anchor="start">SECRET / OPERATOR AUTHORITY</text>
+<text x="1215" y="192" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="400" fill="#A98F93" text-anchor="start">Never returned to the model</text>
+<rect x="75" y="260" width="230" height="130" rx="18" fill="#111A24" stroke="#3D4B55" stroke-width="2"/>
+<text x="190" y="300" font-family="Arial, Helvetica, sans-serif" font-size="25" font-weight="800" fill="#E6EDF3" text-anchor="middle">Agent / LLM</text>
+<text x="190" y="336" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="500" fill="#C9D1D9" text-anchor="middle">chooses tool + arguments</text>
+<text x="190" y="363" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="400" fill="#8B949E" text-anchor="middle">identity is out-of-band</text>
+<rect x="75" y="470" width="230" height="140" rx="18" fill="#0F2118" stroke="#2EA043" stroke-width="2"/>
+<text x="190" y="510" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="800" fill="#D8FFE1" text-anchor="middle">Public result</text>
+<text x="190" y="546" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="500" fill="#B7F7C4" text-anchor="middle">address · public key · path</text>
+<text x="190" y="572" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="500" fill="#B7F7C4" text-anchor="middle">wallet id · timestamps</text>
+<text x="190" y="596" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#7EE787" text-anchor="middle">no seed · no private key</text>
+<rect x="420" y="245" width="180" height="165" rx="18" fill="#111B18" stroke="#365F48" stroke-width="2"/>
+<text x="510" y="283" font-family="Arial, Helvetica, sans-serif" font-size="21" font-weight="800" fill="#E6EDF3" text-anchor="middle">HTTP + Auth</text>
+<text x="510" y="323" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="650" fill="#B7F7C4" text-anchor="middle">X-API-KEY</text>
+<text x="510" y="350" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="500" fill="#C9D1D9" text-anchor="middle">HMAC lookup</text>
+<text x="510" y="377" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="500" fill="#8B949E" text-anchor="middle">caller bound to request</text>
+<rect x="635" y="245" width="180" height="165" rx="18" fill="#111B18" stroke="#365F48" stroke-width="2"/>
+<text x="725" y="283" font-family="Arial, Helvetica, sans-serif" font-size="21" font-weight="800" fill="#E6EDF3" text-anchor="middle">MCP Router</text>
+<text x="725" y="323" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="650" fill="#B7F7C4" text-anchor="middle">4 typed tools</text>
+<text x="725" y="350" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="500" fill="#C9D1D9" text-anchor="middle">schema-described</text>
+<text x="725" y="377" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="500" fill="#8B949E" text-anchor="middle">no signing/export</text>
+<rect x="850" y="245" width="180" height="165" rx="18" fill="#111B18" stroke="#365F48" stroke-width="2"/>
+<text x="940" y="283" font-family="Arial, Helvetica, sans-serif" font-size="21" font-weight="800" fill="#E6EDF3" text-anchor="middle">Wallet Services</text>
+<text x="940" y="323" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="650" fill="#B7F7C4" text-anchor="middle">owner-scoped</text>
+<text x="940" y="350" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="500" fill="#C9D1D9" text-anchor="middle">validated operations</text>
+<text x="940" y="377" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="500" fill="#8B949E" text-anchor="middle">public responses</text>
+<rect x="570" y="475" width="390" height="155" rx="18" fill="#171A1E" stroke="#6E7681" stroke-width="2"/>
+<text x="765" y="516" font-family="Arial, Helvetica, sans-serif" font-size="23" font-weight="800" fill="#E6EDF3" text-anchor="middle">Cryptographic derivation</text>
+<text x="765" y="551" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="600" fill="#D0D7DE" text-anchor="middle">AES-256-GCM open / seal</text>
+<text x="765" y="579" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="600" fill="#D0D7DE" text-anchor="middle">BIP39 → BIP32 → BIP86 / BIP44</text>
+<text x="765" y="607" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#FFB4AE" text-anchor="middle">plaintext secrets exist only briefly</text>
+<rect x="1225" y="245" width="300" height="100" rx="18" fill="#241114" stroke="#F85149" stroke-width="2"/>
+<text x="1375.0" y="281" font-family="Arial, Helvetica, sans-serif" font-size="21" font-weight="800" fill="#FFB4AE" text-anchor="middle">MASTER_KEY</text>
+<text x="1375.0" y="311" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="600" fill="#F0B7B3" text-anchor="middle">HKDF → WalletSeedKey</text>
+<text x="1375.0" y="334" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="500" fill="#A98F93" text-anchor="middle">HKDF → ApiKeyHmacKey</text>
+<rect x="1225" y="390" width="300" height="95" rx="18" fill="#241114" stroke="#F85149" stroke-width="2"/>
+<text x="1375.0" y="426" font-family="Arial, Helvetica, sans-serif" font-size="21" font-weight="800" fill="#FFB4AE" text-anchor="middle">DATABASE_KEY</text>
+<text x="1375.0" y="456" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="600" fill="#F0B7B3" text-anchor="middle">SQLCipher page encryption</text>
+<text x="1375.0" y="479" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="500" fill="#A98F93" text-anchor="middle">independent key</text>
+<rect x="1225" y="530" width="300" height="115" rx="18" fill="#241114" stroke="#F85149" stroke-width="2"/>
+<text x="1375.0" y="566" font-family="Arial, Helvetica, sans-serif" font-size="21" font-weight="800" fill="#FFB4AE" text-anchor="middle">Transient plaintext</text>
+<text x="1375.0" y="596" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="600" fill="#F0B7B3" text-anchor="middle">recovery phrase · seed</text>
+<text x="1375.0" y="619" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="500" fill="#A98F93" text-anchor="middle">extended private key</text>
+<line x1="305" y1="325" x2="420" y2="325" stroke="#8B949E" stroke-width="3" marker-end="url(#arrow)"/>
+<text x="362" y="306" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="650" fill="#AAB6C3" text-anchor="middle">capability request</text>
+<line x1="600" y1="325" x2="635" y2="325" stroke="#8B949E" stroke-width="3" marker-end="url(#arrow)"/>
+<line x1="815" y1="325" x2="850" y2="325" stroke="#8B949E" stroke-width="3" marker-end="url(#arrow)"/>
+<path d="M940 410 L940 445 L765 445 L765 475" fill="none" stroke="#8B949E" stroke-width="3" marker-end="url(#arrow)"/>
+<path d="M570 565 L510 565 L510 540 L305 540" fill="none" stroke="#3FB950" stroke-width="3" marker-end="url(#green)"/>
+<text x="420" y="522" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="750" fill="#7EE787" text-anchor="middle">PUBLIC-ONLY response</text>
+<path d="M1225 295 L1120 295 L1120 520 L960 520" fill="none" stroke="#F85149" stroke-width="2.7" stroke-dasharray="7 6" marker-end="url(#red)"/>
+<text x="1050" y="503" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="700" fill="#FF7B72" text-anchor="middle">WalletSeedKey</text>
+<path d="M1225 585 L1140 585 L1140 600 L960 600" fill="none" stroke="#F85149" stroke-width="2.7" stroke-dasharray="7 6" marker-end="url(#red)"/>
+<text x="1050" y="619" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="700" fill="#FF7B72" text-anchor="middle">brief plaintext lifetime</text>
+<rect x="40" y="730" width="1520" height="190" rx="24" fill="#0C1510" stroke="#2C4C37" stroke-width="2"/>
+<text x="65" y="765" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="800" fill="#7EE787" text-anchor="start">PERSISTENT STATE · SQLCIPHER</text>
+<text x="65" y="791" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="400" fill="#8ECF9D" text-anchor="start">MCP transport is stateless; wallet state is persistent and encrypted</text>
+<rect x="90" y="825" width="300" height="60" rx="16" fill="#0F1D16" stroke="#2EA043" stroke-width="2"/>
+<text x="240" y="851" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="800" fill="#D8FFE1" text-anchor="middle">api_keys</text>
+<text x="240" y="874" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="500" fill="#B7F7C4" text-anchor="middle">HMAC-SHA256 hashes only</text>
+<rect x="445" y="825" width="430" height="60" rx="16" fill="#2A210A" stroke="#D29922" stroke-width="2"/>
+<text x="660" y="851" font-family="Arial, Helvetica, sans-serif" font-size="19" font-weight="800" fill="#F2CC60" text-anchor="middle">wallets.encrypted_passphrase</text>
+<text x="660" y="874" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="500" fill="#E8D9A5" text-anchor="middle">AES-256-GCM envelope inside SQLCipher</text>
+<rect x="930" y="825" width="300" height="60" rx="16" fill="#0F1D16" stroke="#2EA043" stroke-width="2"/>
+<text x="1080" y="851" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="800" fill="#D8FFE1" text-anchor="middle">accounts</text>
+<text x="1080" y="874" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="500" fill="#B7F7C4" text-anchor="middle">public keys · addresses · paths</text>
+<rect x="1285" y="825" width="225" height="60" rx="16" fill="#101821" stroke="#3D4B55" stroke-width="2"/>
+<text x="1397" y="851" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="800" fill="#D0D7DE" text-anchor="middle">Never persisted</text>
+<text x="1397" y="874" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="500" fill="#8B949E" text-anchor="middle">private keys · seeds</text>
+<path d="M510 410 L510 705 L240 705 L240 825" fill="none" stroke="#3FB950" stroke-width="2.6" stroke-dasharray="6 5" marker-end="url(#green)"/>
+<text x="355" y="698" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="700" fill="#7EE787" text-anchor="middle">caller scope</text>
+<path d="M895 410 L895 690 L660 690 L660 825" fill="none" stroke="#D29922" stroke-width="2.6" stroke-dasharray="6 5" marker-end="url(#gold)"/>
+<text x="780" y="681" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="700" fill="#F2CC60" text-anchor="middle">encrypted wallet secret</text>
+<path d="M940 410 L1040 410 L1040 700 L1080 700 L1080 825" fill="none" stroke="#3FB950" stroke-width="2.6" stroke-dasharray="6 5" marker-end="url(#green)"/>
+<text x="1080" y="690" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="700" fill="#7EE787" text-anchor="middle">public account row</text>
+<text x="40" y="955" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="600" fill="#5E6A75" text-anchor="start">CognoKratos · arktos-wallet</text>
+<text x="1560" y="955" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="600" fill="#5E6A75" text-anchor="end">Agent authority is defined by the tool surface</text>
+</svg>

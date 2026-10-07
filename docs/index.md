@@ -26,6 +26,7 @@ Related tracks: [simple-agent-template](https://github.com/cognokratos/simple-ag
 
 ## Reference
 
+- **[Architecture Overview](./architecture-overview.md)**: visual trust model showing the model-visible capability surface, trusted service boundary, operator/secret authority, and encrypted persistent state
 - **[Architecture](./architecture.md)**: layers, data architecture, MCP transport, security architecture, the [key hierarchy and secret storage](./architecture.md#key-hierarchy--secret-storage), and scalability
 - **[API Contracts](./api-contracts.md)**: HTTP endpoints, the MCP entrypoint, tool schemas, error codes
 - **[Data Models](./data-models.md)**: the `api_keys`, `wallets` and `accounts` tables, relationships and encryption
@@ -44,8 +45,8 @@ Related tracks: [simple-agent-template](https://github.com/cognokratos/simple-ag
 
 | I want to… | Read |
 |---|---|
-| Understand what an agent can and cannot do through Arktos | [Learning path](./CRYPTOGRAPHIC-CAPABILITY-LEARNING-PATH.md), then [C1](./capability/01-model-cryptographic-authority.md) |
-| Understand the system at a high level | [README](../README.md), [Project Overview](./project-overview.md), [Architecture](./architecture.md) |
+| Understand what an agent can and cannot do through Arktos | [Architecture Overview](./architecture-overview.md), [Learning path](./CRYPTOGRAPHIC-CAPABILITY-LEARNING-PATH.md), then [C1](./capability/01-model-cryptographic-authority.md) |
+| Understand the system at a high level | [README](../README.md), [Architecture Overview](./architecture-overview.md), [Project Overview](./project-overview.md), [Architecture](./architecture.md) |
 | Set up a development environment | [Development Guide](./development-guide.md), [Data Models](./data-models.md) |
 | Integrate an MCP client | [API Contracts](./api-contracts.md), [Architecture — API Design](./architecture.md#5-api-design), the protocol tests in `tests/mcp_protocol_tests.rs` |
 | Add a tool or a chain | [C7 — Design least-capability tools](./capability/07-design-least-capability-tools.md) first, then the [Customization Guide](./customization-guide.md) |
