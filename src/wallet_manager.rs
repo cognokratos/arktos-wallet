@@ -3,17 +3,18 @@
 //! The mnemonic is held in [`RecoveryPhrase`], which zeroizes on drop and
 //! redacts `Debug`. Seeds are zeroized as soon as the extended key is built,
 //! and derived private keys never leave this module: only the public key and
-//! address are returned.
-//! Library-internal copies (e.g. inside `bip39::Mnemonic` or `bip32::XPrv`
-//! chain codes) are outside our control.
+//! address are returned. BIP32 is `bitcoin::bip32` over libsecp256k1; every
+//! extended private key held here is wrapped in [`ErasedXpriv`].
+//! Library-internal copies (e.g. inside `bip39::Mnemonic`, or temporaries in
+//! `bitcoin::bip32` child derivation) are outside our control.
 
 use crate::domain::{BitcoinNetwork, DerivationIndex, Network};
 use anyhow::{Result, anyhow};
-use bip32::{DerivationPath, XPrv};
 use bip39::Mnemonic;
 use bitcoin::{
-    PublicKey,
+    NetworkKind, PublicKey,
     address::Address,
+    bip32::{DerivationPath, Xpriv},
     secp256k1::{Secp256k1, XOnlyPublicKey},
 };
 use std::fmt::{self, Write as _};
@@ -90,20 +91,28 @@ pub fn derive_account_keys(
             Mnemonic::parse_normalized(phrase.expose()).map_err(|_| anyhow!("Invalid mnemonic"))?;
         Zeroizing::new(mnemonic.to_seed(""))
     };
-    let mut xprv = XPrv::new(seed.as_slice())?;
+    // The network kind only selects xprv serialization bytes, which are never
+    // used: key material is identical for every network.
+    let mut xprv = ErasedXpriv(
+        Xpriv::new_master(NetworkKind::Main, seed.as_slice())
+            .map_err(|e| anyhow!("Failed to derive master key: {}", e))?,
+    );
     drop(seed);
 
     let derivation_path = network.derivation_path(index);
     let path = DerivationPath::from_str(&derivation_path)
         .map_err(|e| anyhow!("Failed to parse derivation path: {}", e))?;
-    for child_num in path.into_iter() {
-        xprv = xprv
-            .derive_child(child_num)
-            .map_err(|e| anyhow!("Failed to derive child key: {}", e))?;
+    let secp = Secp256k1::signing_only();
+    // One step at a time, so each intermediate key is erased when replaced.
+    for child_num in &path {
+        xprv = ErasedXpriv(
+            xprv.0
+                .derive_priv(&secp, &[*child_num])
+                .map_err(|e| anyhow!("Failed to derive child key: {}", e))?,
+        );
     }
 
-    let public_key = xprv.public_key().to_bytes().to_vec();
-    // The extended private key (and its secp256k1 scalar) is zeroized on drop.
+    let public_key = xprv.0.private_key.public_key(&secp).serialize().to_vec();
     drop(xprv);
 
     let address = match network {
@@ -116,6 +125,25 @@ pub fn derive_account_keys(
         public_key: format!("0x{}", hex::encode(public_key)),
         address,
     })
+}
+
+/// An extended private key that is erased when dropped.
+///
+/// `bitcoin::bip32::Xpriv` is `Copy` and does not wipe itself, so the secret
+/// scalar and chain code of every key this module holds are overwritten here.
+struct ErasedXpriv(Xpriv);
+
+impl ErasedXpriv {
+    fn erase(&mut self) {
+        self.0.private_key.non_secure_erase();
+        AsMut::<[u8; 32]>::as_mut(&mut self.0.chain_code).zeroize();
+    }
+}
+
+impl Drop for ErasedXpriv {
+    fn drop(&mut self) {
+        self.erase();
+    }
 }
 
 /// BIP86 key-path-only Taproot (P2TR) address: the derived key is the internal
@@ -491,6 +519,16 @@ mod tests {
     }
 
     // ---- Secret hygiene -----------------------------------------------------
+
+    #[test]
+    fn extended_private_keys_are_erased() {
+        let mut xprv =
+            ErasedXpriv(Xpriv::new_master(NetworkKind::Main, &[7u8; 64]).expect("master key"));
+        let secret = xprv.0.private_key.secret_bytes();
+        xprv.erase();
+        assert_ne!(xprv.0.private_key.secret_bytes(), secret);
+        assert_eq!(xprv.0.chain_code.to_bytes(), [0u8; 32]);
+    }
 
     #[test]
     fn debug_output_redacts_secrets() {

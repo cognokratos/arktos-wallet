@@ -13,7 +13,7 @@ This walkthrough follows **one wallet recovery phrase** through the real code. I
 
 Read it with [`src/wallet_services.rs`](../../src/wallet_services.rs), [`src/wallet_manager.rs`](../../src/wallet_manager.rs) and [`src/crypto.rs`](../../src/crypto.rs) open. **In the Arktos server request path, plaintext recovery phrases exist only inside the two regions marked `SECRET-BOUNDARY`.** That scope matters: the operator tool [`src/bin/secret.rs`](../../src/bin/secret.rs) (`make decrypt`) can deliberately decrypt and print a stored phrase. The agent has no such capability; the operator, who already holds `MASTER_KEY`, does. Capabilities are assigned by principal ([lesson 07](07-design-least-capability-tools.md#the-operator-has-capabilities-the-agent-does-not)).
 
-"Dropped and zeroized" below means: Arktos drops the value and zeroizes the buffers it owns. Library-internal copies, such as `bip39::Mnemonic` and `bip32::XPrv` internals, follow their crates' own lifecycle, and nothing here guarantees erasure from memory ([what zeroization does not do](04-minimize-secret-lifetimes.md#what-zeroization-does-not-do)).
+"Dropped and zeroized" below means: Arktos drops the value and zeroizes the buffers it owns. Library-internal copies, such as `bip39::Mnemonic` and `bitcoin::bip32` derivation temporaries, follow their crates' own lifecycle, and nothing here guarantees erasure from memory ([what zeroization does not do](04-minimize-secret-lifetimes.md#what-zeroization-does-not-do)).
 
 ```mermaid
 flowchart TB
@@ -28,7 +28,7 @@ flowchart TB
         c2 -- "open: verify tag, decrypt" --> p["plaintext phrase"]
         p -- "BIP39" --> s["seed (64 bytes)"]
         s -- "BIP32" --> x["extended private keys<br/>m/44'/60'/0'/0/i"]
-        s -. "zeroized after XPrv::new" .-> z2(("✕"))
+        s -. "zeroized after Xpriv::new_master" .-> z2(("✕"))
         x -- "public key only" --> pk["public key"]
         x -. "dropped" .-> z3(("✕"))
         p -. "dropped + zeroized" .-> z4(("✕"))
@@ -204,24 +204,24 @@ This is a new, independent HTTP request. The MCP layer is stateless, so nothing 
 
 ### 18. The BIP32 root key is created and the seed zeroized
 
-`XPrv::new(seed)` creates the root key. Then `drop(seed)` runs. The seed is the shortest-lived secret in the system.
+`Xpriv::new_master(NetworkKind::Main, seed)` creates the root key (the network kind only affects xprv serialization, which Arktos never uses). Then `drop(seed)` runs. The seed is the shortest-lived secret in the system.
 
 | Value | Secret? | Stored? | Visible to model? | Protected by | Lifetime |
 |---|---:|---:|---:|---|---|
-| Master extended private key | **yes** | no | no | process isolation; dropped on reassignment (chain codes are [library-owned](04-minimize-secret-lifetimes.md#what-zeroization-does-not-do)) | until the first child is derived |
+| Master extended private key | **yes** | no | no | process isolation; erased by `ErasedXpriv` on reassignment (derivation temporaries are [library-owned](04-minimize-secret-lifetimes.md#what-zeroization-does-not-do)) | until the first child is derived |
 
 ### 19. The chain-specific path is derived
 
-`Network::Ethereum.derivation_path(index)` gives `m/44'/60'/0'/0/{index}`. Each `derive_child` replaces `xprv`.
+`Network::Ethereum.derivation_path(index)` gives `m/44'/60'/0'/0/{index}`. Each single-step `derive_priv` replaces `xprv`, and the replaced key is erased.
 
 | Value | Secret? | Stored? | Visible to model? | Protected by | Lifetime |
 |---|---:|---:|---:|---|---|
-| Intermediate and account extended private keys | **yes** | **no** | no | process isolation; crate-specific wiping (`bip32`/`k256`) | one derivation step each; the account key until step 20 |
+| Intermediate and account extended private keys | **yes** | **no** | no | process isolation; `ErasedXpriv` erases each replaced key (scalar and chain code) | one derivation step each; the account key until step 20 |
 | Derivation path | no | yes | yes | DB `CHECK` constraint | permanent |
 
 ### 20. The public key is extracted and the private hierarchy dropped
 
-`xprv.public_key().to_bytes()` produces the 33-byte compressed public key. `drop(xprv)` follows immediately. **The account private key is not extracted into an Arktos variable of its own**; it exists only inside the library's `XPrv` until that is dropped.
+`xprv.0.private_key.public_key(&secp).serialize()` produces the 33-byte compressed public key. `drop(xprv)` follows immediately. **The account private key is not extracted into an Arktos variable of its own**; it exists only inside the `ErasedXpriv` until that is dropped and erased.
 
 | Value | Secret? | Stored? | Visible to model? | Protected by | Lifetime |
 |---|---:|---:|---:|---|---|
@@ -271,8 +271,8 @@ The derivation `SECRET-BOUNDARY` block ends. Only `AccountData { derivation_path
 | `bip39::Mnemonic` internal representation | yes | no | no | process isolation only: library-owned, **not guaranteed zeroized** | inside a creation or derivation block |
 | Encrypted envelope | secret-bearing | yes | no | `WalletSeedKey` + SQLCipher | permanent |
 | BIP39 seed | yes | no | no | `Zeroizing` (Arktos-owned) | microseconds |
-| BIP32 `XPrv` and intermediate private material | yes | no | no | process isolation; library-owned, crate-specific wiping | one derivation |
-| Account private key | yes | **not persisted** | no | not extracted from `XPrv`, not returned | one derivation |
+| BIP32 `Xpriv` and intermediate private material | yes | no | no | process isolation; held keys erased by `ErasedXpriv`, library temporaries not wiped | one derivation |
+| Account private key | yes | **not persisted** | no | not extracted from `Xpriv`, not returned | one derivation |
 | Public key, path, address | no | yes | yes | n/a | permanent |
 | `MASTER_KEY`-derived subkeys | yes | no | no | process isolation | process lifetime |
 

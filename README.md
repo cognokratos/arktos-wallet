@@ -175,7 +175,7 @@ These are design targets (non-functional requirements), not benchmarked results.
 | Async Runtime | Tokio | 1.x | Non-blocking I/O |
 | Database | SQLite + SQLCipher | 3.x | Encrypted local persistence |
 | Protocol | MCP (Model Context Protocol) | spec `2026-07-28`, rmcp 3.x | AI agent integration (stateless HTTP) |
-| Cryptography | secp256k1, bip39, bip32 | Latest | Blockchain standards |
+| Cryptography | secp256k1 (libsecp256k1), bip39, BIP32 via rust-bitcoin | Latest | Blockchain standards |
 | Serialization | Serde | 1.x | Data encoding (JSON, binary) |
 
 ## 🤝 Contributing

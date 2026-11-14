@@ -36,7 +36,7 @@ This architecture is intentionally **simple and modular**, making it suitable fo
 | Serialization     | Serde, Serde JSON     | 1.x          | Efficient, zero-copy serialization |
 | Schema Generation | Schemars              | 1.x          | JSON schema generation for API documentation |
 | Logging           | Tracing               | 0.1+         | Structured, composable logging framework |
-| Cryptography      | secp256k1, bip39, bip32, tiny-keccak | Latest | Industry-standard blockchain key derivation |
+| Cryptography      | secp256k1 (libsecp256k1), bip39, BIP32 via rust-bitcoin, tiny-keccak | Latest | Industry-standard blockchain key derivation |
 
 ## 3. Architecture Pattern
 
@@ -417,7 +417,7 @@ decrypt secret". Anything that is not a v1 envelope is rejected.
 | Secret | Plaintext exists | Destroyed |
 |--------|------------------|-----------|
 | Recovery phrase | From generation (128-bit OS entropy) until encrypted in `create_wallet`; from decryption until account derivation | Zeroized on drop at the end of that block |
-| BIP39 seed / extended private keys | During one account derivation | Seed zeroized immediately after `XPrv` creation; extended keys zeroized on drop once the public key is computed |
+| BIP39 seed / extended private keys | During one account derivation | Seed zeroized immediately after the master `Xpriv` is created; each extended key Arktos holds is erased (`ErasedXpriv`) when replaced or once the public key is computed |
 | Account private key | Never extracted | Only the public key and address leave the derivation function |
 | Derived subkeys / master key | Process lifetime | Zeroized when dropped at shutdown |
 

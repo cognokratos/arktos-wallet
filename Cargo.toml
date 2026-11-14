@@ -36,7 +36,6 @@ tokio-util = "0.7"
 anyhow = "1.0.100"
 
 bip39 = "2"
-bip32 = "0.5"
 bitcoin = { version = "0.32", features = ["std"] }
 tiny-keccak = { version = "2", features = ["keccak"] }
 hex = "0.4"
