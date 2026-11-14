@@ -41,7 +41,7 @@ docker run -p 8080:8080 arktos-wallet
 | `ADMIN_API_KEY` | yes | Key for the `/admin/*` API |
 | `MASTER_KEY` | yes | 32 random bytes, base64 (`make secret`). Root of the HKDF key hierarchy: API-key HMAC and wallet-seed encryption keys. Losing it makes wallets unrecoverable. |
 | `DATABASE_KEY` | yes | SQLCipher database key. Generate independently of `MASTER_KEY` (`make secret`); must not be equal to it. |
-| `DATABASE_PATH` | no | Database file. Image default `/data/arktos.db`; outside the image `data/arktos.db` relative to the working directory. Missing parent directories are created (mode `0700`); the file is `0600`. |
+| `DATABASE_PATH` | no | Database file. Image default `/data/arktos.db`; outside the image `data/arktos.db` relative to the working directory. Missing parent directories are created (mode `0700`); the file is `0600`. An **existing** directory is used as-is and its permissions are not checked: make sure only the service user can write to it (see the note on the database directory below). |
 | `MCP_ALLOWED_HOSTS` | no | Comma-separated `Host` values accepted on `/mcp` (default `localhost,127.0.0.1,::1`). Set it to the hostname(s) clients use, e.g. `wallet.example.com`; other hosts get `403` (DNS-rebinding protection). |
 | `BITCOIN_NETWORK` | no | `mainnet` (default), `testnet`, `signet` or `regtest`. Selects the address encoding and BIP86 coin type; any other value fails at startup. Accounts are stored per network. |
 | `ETHEREUM_CHAIN_ID` | no | Positive EIP-155 chain ID reported with Ethereum addresses (default `1`). Does not change derived addresses. |
@@ -71,6 +71,13 @@ docker run -d -p 8080:8080 -v arktos-data:/data \
   prints diagnostics (no secrets).
 - The database runs in WAL mode: the volume contains `arktos.db`,
   `arktos.db-wal` and `arktos.db-shm`. Keep them together.
+- **Database directory**: whoever can write to the directory holding
+  `DATABASE_PATH` can delete or replace the database and plant `-wal`/`-shm`
+  files that the server opens on its next start. Arktos does not check or
+  change the permissions of an existing directory or bind mount. Keep it owned
+  by the service user and not writable by group or others (`0700`, as for
+  directories Arktos creates). Avoid `chmod 777` on a host bind mount; give
+  the directory to UID 65532 instead.
 - **Backups**: run `VACUUM INTO '/path/backup.db';` from a keyed `sqlcipher`
   shell for a consistent online copy (encrypted with the same key), or stop the
   container and copy all three files. The `sqlcipher` `.backup` command does not

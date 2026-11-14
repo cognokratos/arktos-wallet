@@ -417,7 +417,7 @@ decrypt secret". Anything that is not a v1 envelope is rejected.
 | Secret | Plaintext exists | Destroyed |
 |--------|------------------|-----------|
 | Recovery phrase | From generation (128-bit OS entropy) until encrypted in `create_wallet`; from decryption until account derivation | Zeroized on drop at the end of that block |
-| BIP39 seed / extended private keys | During one account derivation | Seed zeroized immediately after the master `Xpriv` is created; each extended key Arktos holds is erased (`ErasedXpriv`) when replaced or once the public key is computed |
+| BIP39 seed / extended private keys | During one account derivation | Seed zeroized immediately after the master `Xpriv` is created; each extended key Arktos holds is overwritten in place, best effort (`ErasedXpriv`), when replaced or once the public key is computed; copies left by moves and library temporaries are not wiped |
 | Account private key | Never extracted | Only the public key and address leave the derivation function |
 | Derived subkeys / master key | Process lifetime | Zeroized when dropped at shutdown |
 

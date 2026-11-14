@@ -208,15 +208,15 @@ This is a new, independent HTTP request. The MCP layer is stateless, so nothing 
 
 | Value | Secret? | Stored? | Visible to model? | Protected by | Lifetime |
 |---|---:|---:|---:|---|---|
-| Master extended private key | **yes** | no | no | process isolation; erased by `ErasedXpriv` on reassignment (derivation temporaries are [library-owned](04-minimize-secret-lifetimes.md#what-zeroization-does-not-do)) | until the first child is derived |
+| Master extended private key | **yes** | no | no | process isolation; overwritten in place (best effort) by `ErasedXpriv` on reassignment (copies and derivation temporaries are [library-owned](04-minimize-secret-lifetimes.md#what-zeroization-does-not-do)) | until the first child is derived |
 
 ### 19. The chain-specific path is derived
 
-`Network::Ethereum.derivation_path(index)` gives `m/44'/60'/0'/0/{index}`. Each single-step `derive_priv` replaces `xprv`, and the replaced key is erased.
+`Network::Ethereum.derivation_path(index)` gives `m/44'/60'/0'/0/{index}`. Each single-step `derive_priv` replaces `xprv`, and the replaced key is overwritten in place (best effort).
 
 | Value | Secret? | Stored? | Visible to model? | Protected by | Lifetime |
 |---|---:|---:|---:|---|---|
-| Intermediate and account extended private keys | **yes** | **no** | no | process isolation; `ErasedXpriv` erases each replaced key (scalar and chain code) | one derivation step each; the account key until step 20 |
+| Intermediate and account extended private keys | **yes** | **no** | no | process isolation; `ErasedXpriv` overwrites each replaced key's scalar and chain code in place (best effort; copies left by moves are not wiped) | one derivation step each; the account key until step 20 |
 | Derivation path | no | yes | yes | DB `CHECK` constraint | permanent |
 
 ### 20. The public key is extracted and the private hierarchy dropped
@@ -271,7 +271,7 @@ The derivation `SECRET-BOUNDARY` block ends. Only `AccountData { derivation_path
 | `bip39::Mnemonic` internal representation | yes | no | no | process isolation only: library-owned, **not guaranteed zeroized** | inside a creation or derivation block |
 | Encrypted envelope | secret-bearing | yes | no | `WalletSeedKey` + SQLCipher | permanent |
 | BIP39 seed | yes | no | no | `Zeroizing` (Arktos-owned) | microseconds |
-| BIP32 `Xpriv` and intermediate private material | yes | no | no | process isolation; held keys erased by `ErasedXpriv`, library temporaries not wiped | one derivation |
+| BIP32 `Xpriv` and intermediate private material | yes | no | no | process isolation; held keys overwritten in place by `ErasedXpriv` (best effort); copies and library temporaries not wiped | one derivation |
 | Account private key | yes | **not persisted** | no | not extracted from `Xpriv`, not returned | one derivation |
 | Public key, path, address | no | yes | yes | n/a | permanent |
 | `MASTER_KEY`-derived subkeys | yes | no | no | process isolation | process lifetime |

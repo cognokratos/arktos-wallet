@@ -29,7 +29,7 @@ The single endpoint for all Model Context Protocol (MCP) communication.
 *   **Authentication:** `X-API-KEY: <client API key>` (issued via `/admin/api-keys`). Wallets are scoped to this key.
 *   **Description:** Every request is self-contained. Clients call `server/discover` instead of `initialize`, and send `MCP-Protocol-Version: 2026-07-28`, the SEP-2243 `Mcp-Method` (and `Mcp-Name` for `tools/call`) headers and per-request `_meta` on each request. No `Mcp-Session-Id` is issued or required. Request and response formats are defined by the MCP specification; use an MCP client rather than hand-written requests.
 *   **Responses:**
-    *   **`200 OK`**: JSON-RPC response as `application/json` (or `text/event-stream` if the server streams intermediate messages). Protocol and tool errors are JSON-RPC errors; an unsupported protocol version yields error `-32022`.
+    *   **`200 OK`**: JSON-RPC response as `application/json` (or `text/event-stream` if the server streams intermediate messages). Protocol and tool errors are JSON-RPC errors; an unsupported protocol version yields error `-32022`. A `tools/call` for an unknown tool name is error `-32602` ("tool not found") with `200`; before rmcp 3.6 it was sent with `400`.
     *   **`400 Bad Request`**: Malformed MCP request or inconsistent MCP headers.
     *   **`401 Unauthorized`**: Missing, invalid or revoked API key.
     *   **`403 Forbidden`**: `Host` header not in `MCP_ALLOWED_HOSTS` (DNS-rebinding protection).
@@ -88,6 +88,8 @@ REST endpoints for API-key administration (not MCP), authenticated with the admi
 | `POST /admin/api-keys/{id}/revoke` | — | `API key revoked` (text) | 404, 503 |
 
 Errors use the same body as MCP tool errors: `{"error": {"code": "invalid_argument" | "not_found" | "unavailable" | "internal", "message": "…"}}`. Schemas are in the OpenAPI document at `/openapi.json` (no UI is embedded; open it in any OpenAPI viewer).
+
+**Compatibility note:** the embedded Swagger UI page at `/swagger-ui` was removed, and that path now returns `404`. The OpenAPI document at `/openapi.json` is unchanged.
 
 ### 4. Health
 

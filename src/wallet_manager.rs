@@ -127,10 +127,12 @@ pub fn derive_account_keys(
     })
 }
 
-/// An extended private key that is erased when dropped.
+/// An extended private key that is erased, best effort, when dropped.
 ///
 /// `bitcoin::bip32::Xpriv` is `Copy` and does not wipe itself, so the secret
 /// scalar and chain code of every key this module holds are overwritten here.
+/// This covers only the storage of this value: copies left by earlier moves
+/// of the `Copy` key and temporaries inside `bitcoin::bip32` are not wiped.
 struct ErasedXpriv(Xpriv);
 
 impl ErasedXpriv {
