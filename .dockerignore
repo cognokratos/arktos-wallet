@@ -21,6 +21,8 @@ docs/
 README.md
 CHANGELOG.md
 *.md
+# Read by the vendored crate's build script.
+!vendor/rusqlite_migration/README.md
 
 # Test artifacts
 .cargo/

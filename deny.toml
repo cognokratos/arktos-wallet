@@ -27,6 +27,10 @@ confidence-threshold = 0.9
 exceptions = [
     # MIT + no-false-attribs; required transitively by `bitcoin`.
     { allow = ["MITNFA"], crate = "hex_lit" },
+    # SQLite (public-domain "blessing"), SQLCipher (BSD-3-Clause) and
+    # libtomcrypt (WTFPL / public domain) sources for the bundled SQLCipher
+    # build. Previously shipped inside libsqlite3-sys under its MIT label.
+    { allow = ["blessing", "WTFPL"], crate = "sqlcipher-src" },
 ]
 # The crate itself is MIT and unpublished (publish = false); skip it here.
 private = { ignore = true }
