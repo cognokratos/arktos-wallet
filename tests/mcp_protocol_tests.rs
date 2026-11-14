@@ -829,6 +829,42 @@ async fn wallets_are_isolated_per_api_key() {
     );
 }
 
+#[tokio::test]
+async fn routing_headers_are_validated_and_unknown_tools_are_errors() {
+    let server = TestServer::start().await;
+    let api_key = server.api_key("headers").await;
+    let tool_call = |name: &str| json!({ "name": name, "arguments": {} });
+
+    // Mcp-Name must match the body (SEP-2243); rejected before dispatch.
+    let response = raw_request(
+        &server.url,
+        Some(&api_key),
+        "tools/call",
+        Some("ping"),
+        tool_call("list_wallets"),
+    )
+    .await;
+    assert_eq!(response.status(), 400);
+    let body: Value = response.json().await.expect("json");
+    assert_eq!(body["error"]["code"], -32020);
+
+    // An unknown tool is a JSON-RPC error. rmcp >= 3.6 (RUSTSEC-2026-0461)
+    // no longer looks tools up while validating headers, so this arrives
+    // with HTTP 200 rather than 400; the JSON-RPC error is unchanged.
+    let response = raw_request(
+        &server.url,
+        Some(&api_key),
+        "tools/call",
+        Some("no_such_tool"),
+        tool_call("no_such_tool"),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let body: Value = response.json().await.expect("json");
+    assert_eq!(body["error"]["code"], -32602);
+    assert_eq!(body["error"]["message"], "tool not found");
+}
+
 // ---------------------------------------------------------------------------
 // Health, readiness and admin error handling
 // ---------------------------------------------------------------------------
