@@ -37,7 +37,7 @@ Arktos is intentionally designed as a **customizable blueprint** for system owne
 | **Database**      | SQLite + SQLCipher    | Encrypted local persistence       |
 | **Protocol**      | MCP `2026-07-28` via `rmcp` 3.x | AI agent integration (stateless HTTP) |
 | **Serialization** | Serde + JSON          | Data encoding                     |
-| **Cryptography**  | secp256k1, bip39, bip32 | Blockchain standards            |
+| **Cryptography**  | secp256k1 (libsecp256k1), bip39, BIP32 via rust-bitcoin | Blockchain standards            |
 
 ## Repository Structure
 

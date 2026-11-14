@@ -26,6 +26,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN cargo install --locked cargo-chef --version "${CARGO_CHEF_VERSION}"
 COPY rust-toolchain.toml ./
 COPY --from=planner /app/recipe.json recipe.json
+# Vendored path dependencies are not part of the recipe; cook needs their source.
+COPY vendor/ vendor/
 
 # Cook dependencies (cache layer)
 RUN cargo chef cook --release --locked --recipe-path recipe.json

@@ -288,6 +288,31 @@ mod tests {
     }
 
     #[test]
+    fn previously_stored_values_remain_readable() {
+        // Known answers produced by the released code: a stored v1 envelope
+        // must still open and a stored API-key hash must still match after
+        // any change to the AES-GCM, HMAC, HKDF or constant-time stack.
+        const STORED_ENVELOPE: &str = r#"{"v":1,"alg":"A256GCM","nonce":"EzVcyfXenQNCvdSl","ct":"bLsmv0Yr6cLeMeD2zCwDfrvGY_0IAWY1vJEndB9VH0bdEDPAWlgPjEoBWcydn5sxcrcC0OpaCjgTKDgs_wMujDSvSG-_nNYwV4ncLf2MLghl6IBUnmJB1cI1NJbbIUR7-e15ZUM2hKZAJnK8iA"}"#;
+        const STORED_HASH: &str =
+            "888b630b61c079704da8b91a25e82200ce3a8e831196e84563449f5334e742aa";
+        let keyring = Keyring::new(&MasterKey::from_bytes(MASTER_A));
+
+        let phrase = crypto::open(keyring.wallet.seed.aead(), STORED_ENVELOPE).unwrap();
+        assert_eq!(
+            phrase.as_slice(),
+            b"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
+        );
+        assert_eq!(keyring.api_keys.hmac.hash("ak_test_pinned"), STORED_HASH);
+
+        // The tag is still verified: one flipped ciphertext character fails.
+        let tampered = STORED_ENVELOPE.replace("bLsmv0", "bLsmv1");
+        assert_eq!(
+            crypto::open(keyring.wallet.seed.aead(), &tampered).unwrap_err(),
+            crypto::CryptoError::DecryptionFailed
+        );
+    }
+
+    #[test]
     fn master_key_parses_base64_variants() {
         let standard = STANDARD.encode([0xfb; 32]);
         let url = URL_SAFE.encode([0xfb; 32]);

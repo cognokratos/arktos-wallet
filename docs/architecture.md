@@ -36,7 +36,7 @@ This architecture is intentionally **simple and modular**, making it suitable fo
 | Serialization     | Serde, Serde JSON     | 1.x          | Efficient, zero-copy serialization |
 | Schema Generation | Schemars              | 1.x          | JSON schema generation for API documentation |
 | Logging           | Tracing               | 0.1+         | Structured, composable logging framework |
-| Cryptography      | secp256k1, bip39, bip32, tiny-keccak | Latest | Industry-standard blockchain key derivation |
+| Cryptography      | secp256k1 (libsecp256k1), bip39, BIP32 via rust-bitcoin, tiny-keccak | Latest | Industry-standard blockchain key derivation |
 
 ## 3. Architecture Pattern
 
@@ -233,7 +233,7 @@ The server exposes a minimal, intentionally-constrained HTTP interface to maximi
 | `/readyz` | GET | Readiness probe (database accessible; migrations ran at startup) | None |
 | `/mcp` | POST | Model Context Protocol endpoint (MCP `2026-07-28`) | API Key (`X-API-KEY`) |
 | `/admin/api-keys`, `/admin/api-keys/{id}/revoke`, `/admin/api-keys/{id}/rotate` | GET/POST | API key administration (REST, not MCP) | Admin API Key |
-| `/swagger-ui`, `/openapi.json` | GET | API documentation | None |
+| `/openapi.json` | GET | OpenAPI document (JSON; load it into any OpenAPI viewer, no UI is embedded) | None |
 
 ### MCP Transport
 
@@ -417,7 +417,7 @@ decrypt secret". Anything that is not a v1 envelope is rejected.
 | Secret | Plaintext exists | Destroyed |
 |--------|------------------|-----------|
 | Recovery phrase | From generation (128-bit OS entropy) until encrypted in `create_wallet`; from decryption until account derivation | Zeroized on drop at the end of that block |
-| BIP39 seed / extended private keys | During one account derivation | Seed zeroized immediately after `XPrv` creation; extended keys zeroized on drop once the public key is computed |
+| BIP39 seed / extended private keys | During one account derivation | Seed zeroized immediately after the master `Xpriv` is created; each extended key Arktos holds is overwritten in place, best effort (`ErasedXpriv`), when replaced or once the public key is computed; copies left by moves and library temporaries are not wiped |
 | Account private key | Never extracted | Only the public key and address leave the derivation function |
 | Derived subkeys / master key | Process lifetime | Zeroized when dropped at shutdown |
 

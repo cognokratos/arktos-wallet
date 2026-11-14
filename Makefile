@@ -5,7 +5,7 @@ endif
 
 IMAGE ?= arktos-wallet:dev
 
-.PHONY: help dev build test nextest check lint fmt fmt-check fix audit deny docs-check ci \
+.PHONY: help dev build test nextest check lint fmt fmt-check fix audit deny docs-check vendor-check ci \
 	docker-build docker-lint docker-run migrate db-info sql secret encrypt decrypt hash
 
 help:
@@ -24,6 +24,7 @@ help:
 	@echo "  audit         Check dependencies for known vulnerabilities (cargo-audit)"
 	@echo "  deny          Check advisories, licenses, bans and sources (cargo-deny)"
 	@echo "  docs-check    Check doc links, anchors, repository paths and make targets (offline)"
+	@echo "  vendor-check  Prove vendor/ equals the crates.io release plus its recorded patch (network)"
 	@echo "  ci            Run all local CI checks (no Docker required)"
 	@echo ""
 	@echo "Docker:"
@@ -81,10 +82,15 @@ docs-check:
 	python3 scripts/verify_docs_test.py
 	python3 scripts/verify_docs.py
 
+# Downloads the crates.io archive; pass a local copy with
+# `python3 scripts/verify_vendored_crate.py FILE.crate` to run offline.
+vendor-check:
+	python3 scripts/verify_vendored_crate.py
+
 # Mirrors the jobs in .github/workflows/ci.yml (except Docker); compiler
 # warnings are errors.
 ci: export CARGO_BUILD_WARNINGS = deny
-ci: fmt-check docs-check check lint nextest audit deny
+ci: fmt-check docs-check check lint nextest audit deny vendor-check
 
 docker-build:
 	docker build -t $(IMAGE) .

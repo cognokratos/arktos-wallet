@@ -10,13 +10,13 @@ publish = false
 tokio = { version = "1", features = ["full"] }
 
 # Use rusqlite and bundle SQLCipher + a vendored OpenSSL
-rusqlite = { version = "0.38", features = ["bundled-sqlcipher-vendored-openssl"] }
-# Embedded, versioned SQL migrations (PRAGMA user_version). Pinned to the
-# release line that targets rusqlite 0.38.
-rusqlite_migration = "~2.4"
+rusqlite = { version = "0.42", features = ["bundled-sqlcipher-vendored-openssl"] }
+# Embedded, versioned SQL migrations (PRAGMA user_version). Exact pin: the
+# [patch] below substitutes a vendored copy of this release.
+rusqlite_migration = "=2.7.0"
 
 # Official MCP Rust SDK (MCP 2026-07-28, stateless Streamable HTTP server)
-rmcp = { version = "3.5", default-features = false, features = [
+rmcp = { version = "3.9", default-features = false, features = [
     "server",
     "macros",
     "transport-streamable-http-server",
@@ -36,7 +36,6 @@ tokio-util = "0.7"
 anyhow = "1.0.100"
 
 bip39 = "2"
-bip32 = "0.5"
 bitcoin = { version = "0.32", features = ["std"] }
 tiny-keccak = { version = "2", features = ["keccak"] }
 hex = "0.4"
@@ -54,15 +53,22 @@ getrandom = "0.4"
 zeroize = "1.8"
 secrecy = "0.10"
 subtle = "2.6"
-utoipa-swagger-ui = { version = "9", features = ["axum"] }
 
 [dev-dependencies]
 tempfile = "3"
 # Official MCP client used by the protocol-level integration tests
-rmcp = { version = "3.5", default-features = false, features = [
+rmcp = { version = "3.9", default-features = false, features = [
     "client",
     "transport-streamable-http-client-reqwest",
 ] }
 reqwest = { version = "0.13", default-features = false, features = ["json"] }
 
 
+
+# rusqlite_migration 2.7.0 requires rusqlite ^0.41, whose bundled SQLCipher
+# still ships an SQLite affected by RUSTSEC-2026-0459. This is the unmodified
+# 2.7.0 release with only that requirement raised to 0.42; `make vendor-check`
+# proves it against the crates.io archive. Remove once an upstream release
+# supports rusqlite 0.42 (see docs/security-advisory-inventory.md).
+[patch.crates-io]
+rusqlite_migration = { path = "vendor/rusqlite_migration" }

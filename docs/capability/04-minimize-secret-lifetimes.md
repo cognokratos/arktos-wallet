@@ -67,9 +67,9 @@ Inside [`src/wallet_manager.rs`](../../src/wallet_manager.rs):
 | `bip39::Mnemonic` (parsed words) | **Library-owned** | Dropped at the end of the scope that built it. Not zeroized by this build (the crate's zeroize feature is not enabled) |
 | Phrase text | Arktos: `RecoveryPhrase(Zeroizing<String>)`, pre-sized to `MAX_PHRASE_LEN` so formatting does not reallocate and leave a stray copy of that buffer | Zeroized when the `SECRET-BOUNDARY` block ends |
 | Decrypted bytes | Arktos: `crypto::open` returns `Zeroizing<Vec<u8>>`. `RecoveryPhrase::from_utf8` takes ownership **without copying** | Same |
-| Seed | Arktos: `Zeroizing<[u8; 64]>` | Explicit `drop(seed)`, zeroizing it, immediately after `XPrv::new` |
-| Extended private keys | **Library-owned**: `bip32::XPrv`, reassigned at each child step | Explicit `drop(xprv)` as soon as the public key bytes are taken. Whether and how the scalar and chain code are wiped is up to the `bip32`/`k256` crates |
-| Account private key | Inside the final `XPrv` | Not extracted into an Arktos variable, not persisted, not returned |
+| Seed | Arktos: `Zeroizing<[u8; 64]>` | Explicit `drop(seed)`, zeroizing it, immediately after `Xpriv::new_master` |
+| Extended private keys | Arktos: `bitcoin::bip32::Xpriv` (a `Copy` type that does not wipe itself) held in `ErasedXpriv`, replaced at each child step | Best effort: each held key's secp256k1 scalar (`non_secure_erase`, which the secp256k1 crate itself calls non-secure) and chain code (`zeroize`) are overwritten in place when it is replaced or dropped; explicit `drop(xprv)` as soon as the public key bytes are taken. Temporaries inside `bitcoin::bip32` child derivation (HMAC state, the untweaked child scalar, stack copies of the `Copy` key) are library-internal and not wiped |
+| Account private key | Inside the final `ErasedXpriv` | Not extracted into an Arktos variable, not persisted, not returned |
 
 The strongest honest summary: **Arktos intentionally shortens secret lifetimes. It zeroizes buffers it owns, and library-internal copies are outside its control.** Nothing here guarantees that a secret is erased from memory.
 
@@ -79,7 +79,7 @@ Secret-bearing types also **redact themselves**: `RecoveryPhrase`, `MasterKey`, 
 
 Zeroization is hygiene, not a security boundary. It overwrites a buffer *that you own* when it is dropped. That shortens the window during which a memory disclosure (a heap-read bug, a crash dump, a debugger) can find the secret. It does **not** give memory secrecy, and the code comments say so. Specifically:
 
-- **Library-internal copies.** `bip39::Mnemonic` holds the parsed words, and this build does not enable that crate's zeroize feature. Its normalization step may allocate as well. `bip32` chain codes are outside Arktos's control. The module comment in [`src/wallet_manager.rs`](../../src/wallet_manager.rs) states this.
+- **Library-internal copies.** `bip39::Mnemonic` holds the parsed words, and this build does not enable that crate's zeroize feature. Its normalization step may allocate as well. Temporaries inside `bitcoin::bip32` child derivation (HMAC state, the untweaked child scalar) are outside Arktos's control; the extended keys Arktos holds are erased by `ErasedXpriv`. The module comment in [`src/wallet_manager.rs`](../../src/wallet_manager.rs) states this.
 - **Compiler and allocator copies.** Moves can leave copies on the stack, a reallocation can leave an old buffer behind, and nothing zeroizes freed allocator pages that a value previously occupied.
 - **The process environment.** `MASTER_KEY`, `DATABASE_KEY` and `ADMIN_API_KEY` are environment variables, and they stay readable in the process environment for the lifetime of the process. The derived subkeys are held for the process lifetime by design. SQLCipher keeps its own page key inside the connection.
 - **Client API keys in transit.** The `X-API-KEY` header value is copied into an ordinary `String` during authentication, and the HTTP stack's header buffers are not zeroized.
@@ -91,7 +91,7 @@ So zeroization is **hygiene that shrinks windows**. It is not a boundary. The bo
 
 ### Trace a first-use call
 
-Open [`src/wallet_services.rs`](../../src/wallet_services.rs) at `get_ethereum_address` and follow it into `account`, `crypto::open` and `wallet_manager::derive_account_keys`. On paper, mark every line where plaintext secret material is **live**. A value is live if it exists in memory, even when no code is currently using it. You should find at least: the decrypted byte buffer, the `RecoveryPhrase`, the parsed `Mnemonic`, the seed, each intermediate `XPrv`, and the final `XPrv`. Then mark the first line after which **none** of them exists.
+Open [`src/wallet_services.rs`](../../src/wallet_services.rs) at `get_ethereum_address` and follow it into `account`, `crypto::open` and `wallet_manager::derive_account_keys`. On paper, mark every line where plaintext secret material is **live**. A value is live if it exists in memory, even when no code is currently using it. You should find at least: the decrypted byte buffer, the `RecoveryPhrase`, the parsed `Mnemonic`, the seed, each intermediate `Xpriv`, and the final `Xpriv`. Then mark the first line after which **none** of them exists.
 
 ### Observe: when is the secret touched?
 

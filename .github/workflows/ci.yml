@@ -88,6 +88,9 @@ jobs:
         with:
           tool: cargo-deny@0.20.2
       - run: make deny
+      # Supply chain: vendor/ must equal the crates.io release plus its
+      # recorded patch.
+      - run: make vendor-check
 
   dockerfile-lint:
     name: Dockerfile lint (hadolint)

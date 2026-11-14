@@ -33,6 +33,11 @@ The project is pre-1.0 and has no tagged releases yet. Security fixes are made o
 
 Accepted dependency advisories are listed, with justification, in
 [`deny.toml`](./deny.toml) and [`.cargo/audit.toml`](./.cargo/audit.toml).
+An ignore entry is added only after a maintainer approves it.
+
+The [dependency advisory inventory](./docs/security-advisory-inventory.md)
+records each RustSec finding: its dependency path and exposure, how it was
+remediated, and any open item awaiting a maintainer decision.
 
 ## Disclaimer
 

@@ -462,6 +462,77 @@ async fn v1_database_is_upgraded_to_v2() {
     );
 }
 
+#[test]
+fn failed_migration_rolls_back_completely() {
+    let fx = Fixture::new();
+    // A schema-version-1 database holding an account whose wallet is missing
+    // (possible only with foreign keys off). V2 rebuilds `accounts` with a
+    // REFERENCES clause and a foreign-key check, so it must fail.
+    let raw = fx.raw();
+    raw.pragma_update(None, "foreign_keys", false).unwrap();
+    raw.execute_batch(include_str!("../migrations/V1__initial_schema.sql"))
+        .unwrap();
+    raw.pragma_update(None, "user_version", 1).unwrap();
+    raw.execute(
+        "INSERT INTO accounts (id, wallet_id, chain_type, account_index, derivation_path, public_key, address)
+         VALUES (10, 404, 'Bitcoin', 0, 'm/86''/0''/0''/0/0', '0xpk', 'bc1porphan')",
+        [],
+    )
+    .unwrap();
+    let v1_columns = columns(&raw, "accounts");
+    drop(raw);
+
+    let err = Database::new(fx.path().to_str().unwrap(), DB_KEY)
+        .err()
+        .unwrap();
+    // The V2 INSERT … SELECT trips the enforced foreign key mid-migration,
+    // after `accounts_v2` was already created.
+    assert_eq!(err, StoreError::ForeignKeyViolation);
+
+    // Nothing from the failed V2 is left behind: version, schema and rows
+    // are exactly as before the attempt.
+    let conn = fx.raw();
+    let version: i64 = conn
+        .pragma_query_value(None, "user_version", |r| r.get(0))
+        .unwrap();
+    assert_eq!(version, 1);
+    assert_eq!(columns(&conn, "accounts"), v1_columns);
+    assert!(!v1_columns.contains(&"network".to_string()));
+    let leftover: i64 = conn
+        .query_row(
+            "SELECT count(*) FROM sqlite_schema WHERE name = 'accounts_v2'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(leftover, 0);
+    let address: String = conn
+        .query_row("SELECT address FROM accounts WHERE id = 10", [], |r| {
+            r.get(0)
+        })
+        .unwrap();
+    assert_eq!(address, "bc1porphan");
+}
+
+#[tokio::test]
+async fn bundled_sqlcipher_includes_the_cve_2026_119375_fix() {
+    // RUSTSEC-2026-0459: SQLite before 3.54.0 can return uninitialized
+    // page-cache memory for a mismatched -wal file. Guard against a
+    // dependency change that silently brings an affected SQLite back.
+    let info = Fixture::new().open().info().await.unwrap();
+    assert!(!info.cipher_version.is_empty(), "SQLCipher must be linked");
+    let version: Vec<u32> = info
+        .sqlite_version
+        .split('.')
+        .map(|part| part.parse().unwrap())
+        .collect();
+    assert!(
+        version.as_slice() >= [3, 54, 0].as_slice(),
+        "SQLite {} is affected by CVE-2026-119375",
+        info.sqlite_version
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Transactions
 // ---------------------------------------------------------------------------

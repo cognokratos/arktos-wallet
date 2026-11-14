@@ -3,17 +3,18 @@
 //! The mnemonic is held in [`RecoveryPhrase`], which zeroizes on drop and
 //! redacts `Debug`. Seeds are zeroized as soon as the extended key is built,
 //! and derived private keys never leave this module: only the public key and
-//! address are returned.
-//! Library-internal copies (e.g. inside `bip39::Mnemonic` or `bip32::XPrv`
-//! chain codes) are outside our control.
+//! address are returned. BIP32 is `bitcoin::bip32` over libsecp256k1; every
+//! extended private key held here is wrapped in [`ErasedXpriv`].
+//! Library-internal copies (e.g. inside `bip39::Mnemonic`, or temporaries in
+//! `bitcoin::bip32` child derivation) are outside our control.
 
 use crate::domain::{BitcoinNetwork, DerivationIndex, Network};
 use anyhow::{Result, anyhow};
-use bip32::{DerivationPath, XPrv};
 use bip39::Mnemonic;
 use bitcoin::{
-    PublicKey,
+    NetworkKind, PublicKey,
     address::Address,
+    bip32::{DerivationPath, Xpriv},
     secp256k1::{Secp256k1, XOnlyPublicKey},
 };
 use std::fmt::{self, Write as _};
@@ -90,20 +91,28 @@ pub fn derive_account_keys(
             Mnemonic::parse_normalized(phrase.expose()).map_err(|_| anyhow!("Invalid mnemonic"))?;
         Zeroizing::new(mnemonic.to_seed(""))
     };
-    let mut xprv = XPrv::new(seed.as_slice())?;
+    // The network kind only selects xprv serialization bytes, which are never
+    // used: key material is identical for every network.
+    let mut xprv = ErasedXpriv(
+        Xpriv::new_master(NetworkKind::Main, seed.as_slice())
+            .map_err(|e| anyhow!("Failed to derive master key: {}", e))?,
+    );
     drop(seed);
 
     let derivation_path = network.derivation_path(index);
     let path = DerivationPath::from_str(&derivation_path)
         .map_err(|e| anyhow!("Failed to parse derivation path: {}", e))?;
-    for child_num in path.into_iter() {
-        xprv = xprv
-            .derive_child(child_num)
-            .map_err(|e| anyhow!("Failed to derive child key: {}", e))?;
+    let secp = Secp256k1::signing_only();
+    // One step at a time, so each intermediate key is erased when replaced.
+    for child_num in &path {
+        xprv = ErasedXpriv(
+            xprv.0
+                .derive_priv(&secp, &[*child_num])
+                .map_err(|e| anyhow!("Failed to derive child key: {}", e))?,
+        );
     }
 
-    let public_key = xprv.public_key().to_bytes().to_vec();
-    // The extended private key (and its secp256k1 scalar) is zeroized on drop.
+    let public_key = xprv.0.private_key.public_key(&secp).serialize().to_vec();
     drop(xprv);
 
     let address = match network {
@@ -116,6 +125,27 @@ pub fn derive_account_keys(
         public_key: format!("0x{}", hex::encode(public_key)),
         address,
     })
+}
+
+/// An extended private key that is erased, best effort, when dropped.
+///
+/// `bitcoin::bip32::Xpriv` is `Copy` and does not wipe itself, so the secret
+/// scalar and chain code of every key this module holds are overwritten here.
+/// This covers only the storage of this value: copies left by earlier moves
+/// of the `Copy` key and temporaries inside `bitcoin::bip32` are not wiped.
+struct ErasedXpriv(Xpriv);
+
+impl ErasedXpriv {
+    fn erase(&mut self) {
+        self.0.private_key.non_secure_erase();
+        AsMut::<[u8; 32]>::as_mut(&mut self.0.chain_code).zeroize();
+    }
+}
+
+impl Drop for ErasedXpriv {
+    fn drop(&mut self) {
+        self.erase();
+    }
 }
 
 /// BIP86 key-path-only Taproot (P2TR) address: the derived key is the internal
@@ -304,6 +334,145 @@ mod tests {
         }
     }
 
+    // ---- Golden table: every supported network, index edges, two seeds ----
+    // Generated with the original `bip32` 0.5 / `k256` 0.13 implementation
+    // before it was replaced by `bitcoin::bip32`; any change here is a
+    // wallet-breaking change, not a refactor.
+
+    /// BIP39 reference vector (Trezor test vectors, no passphrase).
+    const LEGAL_MNEMONIC: &str =
+        "legal winner thank year wave sausage worth useful legal winner thank yellow";
+    const BTC_MAIN: Network = MAINNET;
+    const BTC_TEST: Network = Network::Bitcoin(BitcoinNetwork::Testnet);
+    const BTC_SIGNET: Network = Network::Bitcoin(BitcoinNetwork::Signet);
+    const BTC_REGTEST: Network = Network::Bitcoin(BitcoinNetwork::Regtest);
+    const ETH: Network = Network::Ethereum;
+
+    /// (mnemonic, network, index, path, compressed public key, address)
+    #[rustfmt::skip]
+    const GOLDEN: &[(&str, Network, u32, &str, &str, &str)] = &[
+        (TEST_MNEMONIC, BTC_MAIN, 0, "m/86'/0'/0'/0/0", "0x03cc8a4bc64d897bddc5fbc2f670f7a8ba0b386779106cf1223c6fc5d7cd6fc115", "bc1p5cyxnuxmeuwuvkwfem96lqzszd02n6xdcjrs20cac6yqjjwudpxqkedrcr"),
+        (TEST_MNEMONIC, BTC_MAIN, 1, "m/86'/0'/0'/0/1", "0x0283dfe85a3151d2517290da461fe2815591ef69f2b18a2ce63f01697a8b313145", "bc1p4qhjn9zdvkux4e44uhx8tc55attvtyu358kutcqkudyccelu0was9fqzwh"),
+        (TEST_MNEMONIC, BTC_MAIN, 2, "m/86'/0'/0'/0/2", "0x03a730a23ce8b47248a5ddfb32eef75262d91f0b55b084dd1ff0d2f9e032e0e533", "bc1p0d0rhyynq0awa9m8cqrcr8f5nxqx3aw29w4ru5u9my3h0sfygnzs9khxz8"),
+        (TEST_MNEMONIC, BTC_MAIN, 19, "m/86'/0'/0'/0/19", "0x032d381d0397cb4a4403bf48514fbe424a7ff99ea96e44ea29bc69639d01a9f020", "bc1pd6nqrg63ex4025vaw89l9xke00zqjm5vdgm88us6036yqugpfdcq0dfmeg"),
+        (TEST_MNEMONIC, BTC_MAIN, 1000, "m/86'/0'/0'/0/1000", "0x021e388da92a34c6a5b81ddae1003e45aad16f2292959f2c4a71e43c957531992f", "bc1pp2pues3jzmnk65mhqse3nlv2s7e7x9mpzag3snu0vukhqgtq4knqq8ax6q"),
+        (TEST_MNEMONIC, BTC_MAIN, 2147483647, "m/86'/0'/0'/0/2147483647", "0x03ae1f14be6b67db958f4ad01fb15fec2a051fc135bc2ca9ce2b998852dece926a", "bc1pav8jwqrtxqvj856uya800h8elcjr7m04fv500rawfhc5r9nm2m4s2u4c22"),
+        (TEST_MNEMONIC, BTC_TEST, 0, "m/86'/1'/0'/0/0", "0x0255355ca83c973f1d97ce0e3843c85d78905af16b4dc531bc488e57212d230116", "tb1p8wpt9v4frpf3tkn0srd97pksgsxc5hs52lafxwru9kgeephvs7rqlqt9zj"),
+        (TEST_MNEMONIC, BTC_TEST, 1, "m/86'/1'/0'/0/1", "0x033058679f6d60b87ef921d98a2a9a1f1e0779dae27bedbd1cdb2f147a07835ac9", "tb1p90h6z3p36n9hrzy7580h5l429uwchyg8uc9sz4jwzhdtuhqdl5eqmpwq6n"),
+        (TEST_MNEMONIC, BTC_TEST, 2, "m/86'/1'/0'/0/2", "0x02b68df382cad577d8304d5a8e640c3cb42d77c10016ab754caa4d6e68b6cb296d", "tb1p40qqa84kpphe5vtcwd8zv7v6w7p62cmupf6f60mf8pxdkcv2455q9jyrjg"),
+        (TEST_MNEMONIC, BTC_TEST, 19, "m/86'/1'/0'/0/19", "0x0299dddf5c1ca2012dc3c801ca02314597e97901a20669a0e67f6cbbecb70be20c", "tb1p20gfetp0fhwrp739uqsknzc5vzjrcxdau0jqsg8nl3tmc8ypashsjw3tzv"),
+        (TEST_MNEMONIC, BTC_TEST, 1000, "m/86'/1'/0'/0/1000", "0x02319bd777a1036786d36bcee25e7a542078753094cde4b25a70c91dc810106e29", "tb1pmhenlqgf3hphwunggufdcdyap2vm9vwgx8qurlml6szy02f50etsum69yq"),
+        (TEST_MNEMONIC, BTC_TEST, 2147483647, "m/86'/1'/0'/0/2147483647", "0x034c517607e625c615a9129044a24af9ee3fc1b8be7129fbecbf0d41bb9d22b7d3", "tb1pwkgr80z34h2q7vjh6r7xczrj43hrq54q9jr0vfln227ua9gmj8nqry2py5"),
+        (TEST_MNEMONIC, BTC_SIGNET, 0, "m/86'/1'/0'/0/0", "0x0255355ca83c973f1d97ce0e3843c85d78905af16b4dc531bc488e57212d230116", "tb1p8wpt9v4frpf3tkn0srd97pksgsxc5hs52lafxwru9kgeephvs7rqlqt9zj"),
+        (TEST_MNEMONIC, BTC_SIGNET, 1, "m/86'/1'/0'/0/1", "0x033058679f6d60b87ef921d98a2a9a1f1e0779dae27bedbd1cdb2f147a07835ac9", "tb1p90h6z3p36n9hrzy7580h5l429uwchyg8uc9sz4jwzhdtuhqdl5eqmpwq6n"),
+        (TEST_MNEMONIC, BTC_SIGNET, 2, "m/86'/1'/0'/0/2", "0x02b68df382cad577d8304d5a8e640c3cb42d77c10016ab754caa4d6e68b6cb296d", "tb1p40qqa84kpphe5vtcwd8zv7v6w7p62cmupf6f60mf8pxdkcv2455q9jyrjg"),
+        (TEST_MNEMONIC, BTC_SIGNET, 19, "m/86'/1'/0'/0/19", "0x0299dddf5c1ca2012dc3c801ca02314597e97901a20669a0e67f6cbbecb70be20c", "tb1p20gfetp0fhwrp739uqsknzc5vzjrcxdau0jqsg8nl3tmc8ypashsjw3tzv"),
+        (TEST_MNEMONIC, BTC_SIGNET, 1000, "m/86'/1'/0'/0/1000", "0x02319bd777a1036786d36bcee25e7a542078753094cde4b25a70c91dc810106e29", "tb1pmhenlqgf3hphwunggufdcdyap2vm9vwgx8qurlml6szy02f50etsum69yq"),
+        (TEST_MNEMONIC, BTC_SIGNET, 2147483647, "m/86'/1'/0'/0/2147483647", "0x034c517607e625c615a9129044a24af9ee3fc1b8be7129fbecbf0d41bb9d22b7d3", "tb1pwkgr80z34h2q7vjh6r7xczrj43hrq54q9jr0vfln227ua9gmj8nqry2py5"),
+        (TEST_MNEMONIC, BTC_REGTEST, 0, "m/86'/1'/0'/0/0", "0x0255355ca83c973f1d97ce0e3843c85d78905af16b4dc531bc488e57212d230116", "bcrt1p8wpt9v4frpf3tkn0srd97pksgsxc5hs52lafxwru9kgeephvs7rqjeprhg"),
+        (TEST_MNEMONIC, BTC_REGTEST, 1, "m/86'/1'/0'/0/1", "0x033058679f6d60b87ef921d98a2a9a1f1e0779dae27bedbd1cdb2f147a07835ac9", "bcrt1p90h6z3p36n9hrzy7580h5l429uwchyg8uc9sz4jwzhdtuhqdl5eqkcyx0f"),
+        (TEST_MNEMONIC, BTC_REGTEST, 2, "m/86'/1'/0'/0/2", "0x02b68df382cad577d8304d5a8e640c3cb42d77c10016ab754caa4d6e68b6cb296d", "bcrt1p40qqa84kpphe5vtcwd8zv7v6w7p62cmupf6f60mf8pxdkcv2455qgtw98j"),
+        (TEST_MNEMONIC, BTC_REGTEST, 19, "m/86'/1'/0'/0/19", "0x0299dddf5c1ca2012dc3c801ca02314597e97901a20669a0e67f6cbbecb70be20c", "bcrt1p20gfetp0fhwrp739uqsknzc5vzjrcxdau0jqsg8nl3tmc8ypashslhmdhk"),
+        (TEST_MNEMONIC, BTC_REGTEST, 1000, "m/86'/1'/0'/0/1000", "0x02319bd777a1036786d36bcee25e7a542078753094cde4b25a70c91dc810106e29", "bcrt1pmhenlqgf3hphwunggufdcdyap2vm9vwgx8qurlml6szy02f50ets3zsr36"),
+        (TEST_MNEMONIC, BTC_REGTEST, 2147483647, "m/86'/1'/0'/0/2147483647", "0x034c517607e625c615a9129044a24af9ee3fc1b8be7129fbecbf0d41bb9d22b7d3", "bcrt1pwkgr80z34h2q7vjh6r7xczrj43hrq54q9jr0vfln227ua9gmj8nqwaq83w"),
+        (TEST_MNEMONIC, ETH, 0, "m/44'/60'/0'/0/0", "0x0237b0bb7a8288d38ed49a524b5dc98cff3eb5ca824c9f9dc0dfdb3d9cd600f299", "0x9858effd232b4033e47d90003d41ec34ecaeda94"),
+        (TEST_MNEMONIC, ETH, 1, "m/44'/60'/0'/0/1", "0x039fd0991d0222b4e1339c1a1a5b5f6d9f6a96672a3247b638ee6156d9ea877a2f", "0x6fac4d18c912343bf86fa7049364dd4e424ab9c0"),
+        (TEST_MNEMONIC, ETH, 2, "m/44'/60'/0'/0/2", "0x03880bcb4bf46b49bdb071e307e282b11b9166907d9708f8c706092c44743f3e67", "0xb6716976a3ebe8d39aceb04372f22ff8e6802d7a"),
+        (TEST_MNEMONIC, ETH, 19, "m/44'/60'/0'/0/19", "0x03851f3f43111d8f89f3a9d69fa4297c07959e7969ea880d0e6ae38a8d6490c469", "0x5096eee90aa1b783af381669938c688f02bb43d8"),
+        (TEST_MNEMONIC, ETH, 1000, "m/44'/60'/0'/0/1000", "0x0296242392ba1bc289a3cc773676dfc8ca38c821a73acfd82f24e53b10669a5390", "0xac2dbb7dc8fa82f47021e01255fbd767a2ec4ead"),
+        (TEST_MNEMONIC, ETH, 2147483647, "m/44'/60'/0'/0/2147483647", "0x024c67f2ae0e53b190612dc3477a570c63302202e534628da052ec5fd12ad7bd7c", "0x8848bfc75a28756b521b09afdc120bddddc7d7c9"),
+        (LEGAL_MNEMONIC, BTC_MAIN, 0, "m/86'/0'/0'/0/0", "0x02ee57d7981c8489be23cecdc96f30596c700d7f55090029e8a94aeca780a31170", "bc1pgp80xvc97ssyphukzd5w6gmz2z45dzawl8sn3g6r9e95l90yvdfqa9879z"),
+        (LEGAL_MNEMONIC, BTC_MAIN, 1, "m/86'/0'/0'/0/1", "0x039c43e4097d76de3ed4db51c7a81adb1d26d29cd3fdfe4eb27b128cdd7e04cb71", "bc1p8t3tw3jvt5urqxjxp8jaex0ecca48l02qm0a85nlaanq2p9lqdvsgglqxq"),
+        (LEGAL_MNEMONIC, BTC_MAIN, 2, "m/86'/0'/0'/0/2", "0x0274e58c75593b289b2947f30cdd5b3bb8e95486085a77f24e9d01f8ab1d59b556", "bc1pkhtuh934jgr2k94pfhc2590jn4nk30svhcj2htta0l4hjx7qudpqdkhm7z"),
+        (LEGAL_MNEMONIC, BTC_MAIN, 19, "m/86'/0'/0'/0/19", "0x02259659a1d4af94c5d2588acedc0a69f89a1e059db65fd37d0ac84d15dc4fed27", "bc1pulsslv34jldzkqqq6jrl4rgnc7cemjcspssytc6jxyfwfzf6y02sv9mwp2"),
+        (LEGAL_MNEMONIC, BTC_MAIN, 1000, "m/86'/0'/0'/0/1000", "0x0296d6c3b4c0921dfa07e80411d4f1af96a55ebe0fdfdb75104440ac5b557bddbc", "bc1pzpesgs9nkddl5wqlvfca57jyg5fw2xleqf53zrzgwl6zj93xmcmqux634k"),
+        (LEGAL_MNEMONIC, BTC_MAIN, 2147483647, "m/86'/0'/0'/0/2147483647", "0x0332c48100a29581dc3c85dca019ae9e4f79813ae5ca5b9b93c6122d5cc0fbc1b1", "bc1pq369nghkp8j0ae0t42p4cghl4ysldayyp8nq3eqncryz4xzduvfqz9zdnc"),
+        (LEGAL_MNEMONIC, BTC_TEST, 0, "m/86'/1'/0'/0/0", "0x029ff08732287dca062343cf43f763ea84dcd40348a1dd6f90956beb0c59c33b94", "tb1p9y6pr3ec7jfdg6aaa282eu6pxn630ujlmkuwzvmdc6lam3t7dy7qrvhl3c"),
+        (LEGAL_MNEMONIC, BTC_TEST, 1, "m/86'/1'/0'/0/1", "0x03bba554603171ffcc5e131cd399de0a1709ec52712c10bde061ed615a891af5dc", "tb1p4355zke8l8sjxjnevk9sytl93qw3ysa48kca74y8uzv22purwwuquulpan"),
+        (LEGAL_MNEMONIC, BTC_TEST, 2, "m/86'/1'/0'/0/2", "0x02ea0a024602e0790922722912a0f01dab4ebc873f86319e56f146817e60c19b44", "tb1ptlqnkl4xzy8kext5pmtjur2rpvvh6sq7tw4jdrjmm9fkyvem4feq2xrces"),
+        (LEGAL_MNEMONIC, BTC_TEST, 19, "m/86'/1'/0'/0/19", "0x0261d8c64341ae8046c273426443e0877d709338c6e488b5676a4b08014b0729d0", "tb1pltd9hy9z6rne9ten5ytmal7738msnaesyg25erh7a9ldgtj04slqpx56vn"),
+        (LEGAL_MNEMONIC, BTC_TEST, 1000, "m/86'/1'/0'/0/1000", "0x03789290056f4b94758b42332bbee6d187a5cf04da4681f5adc873b14c1ea2f35e", "tb1p4cheq3llrcl4smxhve20hqlkfq7dqf3s3vp503t8rl47rxwgggksfsmwpr"),
+        (LEGAL_MNEMONIC, BTC_TEST, 2147483647, "m/86'/1'/0'/0/2147483647", "0x03a2dee826af97df40e6d984623f6fe5fa77e57cd5f608df10d4f57cc2913b70c3", "tb1p5rqam34aqmyt8t8ng027hyfevv3tgzyd477g74drj0ec7ql7hh5sve0rvq"),
+        (LEGAL_MNEMONIC, BTC_SIGNET, 0, "m/86'/1'/0'/0/0", "0x029ff08732287dca062343cf43f763ea84dcd40348a1dd6f90956beb0c59c33b94", "tb1p9y6pr3ec7jfdg6aaa282eu6pxn630ujlmkuwzvmdc6lam3t7dy7qrvhl3c"),
+        (LEGAL_MNEMONIC, BTC_SIGNET, 1, "m/86'/1'/0'/0/1", "0x03bba554603171ffcc5e131cd399de0a1709ec52712c10bde061ed615a891af5dc", "tb1p4355zke8l8sjxjnevk9sytl93qw3ysa48kca74y8uzv22purwwuquulpan"),
+        (LEGAL_MNEMONIC, BTC_SIGNET, 2, "m/86'/1'/0'/0/2", "0x02ea0a024602e0790922722912a0f01dab4ebc873f86319e56f146817e60c19b44", "tb1ptlqnkl4xzy8kext5pmtjur2rpvvh6sq7tw4jdrjmm9fkyvem4feq2xrces"),
+        (LEGAL_MNEMONIC, BTC_SIGNET, 19, "m/86'/1'/0'/0/19", "0x0261d8c64341ae8046c273426443e0877d709338c6e488b5676a4b08014b0729d0", "tb1pltd9hy9z6rne9ten5ytmal7738msnaesyg25erh7a9ldgtj04slqpx56vn"),
+        (LEGAL_MNEMONIC, BTC_SIGNET, 1000, "m/86'/1'/0'/0/1000", "0x03789290056f4b94758b42332bbee6d187a5cf04da4681f5adc873b14c1ea2f35e", "tb1p4cheq3llrcl4smxhve20hqlkfq7dqf3s3vp503t8rl47rxwgggksfsmwpr"),
+        (LEGAL_MNEMONIC, BTC_SIGNET, 2147483647, "m/86'/1'/0'/0/2147483647", "0x03a2dee826af97df40e6d984623f6fe5fa77e57cd5f608df10d4f57cc2913b70c3", "tb1p5rqam34aqmyt8t8ng027hyfevv3tgzyd477g74drj0ec7ql7hh5sve0rvq"),
+        (LEGAL_MNEMONIC, BTC_REGTEST, 0, "m/86'/1'/0'/0/0", "0x029ff08732287dca062343cf43f763ea84dcd40348a1dd6f90956beb0c59c33b94", "bcrt1p9y6pr3ec7jfdg6aaa282eu6pxn630ujlmkuwzvmdc6lam3t7dy7qw4aeyz"),
+        (LEGAL_MNEMONIC, BTC_REGTEST, 1, "m/86'/1'/0'/0/1", "0x03bba554603171ffcc5e131cd399de0a1709ec52712c10bde061ed615a891af5dc", "bcrt1p4355zke8l8sjxjnevk9sytl93qw3ysa48kca74y8uzv22purwwuq3948gf"),
+        (LEGAL_MNEMONIC, BTC_REGTEST, 2, "m/86'/1'/0'/0/2", "0x02ea0a024602e0790922722912a0f01dab4ebc873f86319e56f146817e60c19b44", "bcrt1ptlqnkl4xzy8kext5pmtjur2rpvvh6sq7tw4jdrjmm9fkyvem4feq8lf7v2"),
+        (LEGAL_MNEMONIC, BTC_REGTEST, 19, "m/86'/1'/0'/0/19", "0x0261d8c64341ae8046c273426443e0877d709338c6e488b5676a4b08014b0729d0", "bcrt1pltd9hy9z6rne9ten5ytmal7738msnaesyg25erh7a9ldgtj04slqvl7uef"),
+        (LEGAL_MNEMONIC, BTC_REGTEST, 1000, "m/86'/1'/0'/0/1000", "0x03789290056f4b94758b42332bbee6d187a5cf04da4681f5adc873b14c1ea2f35e", "bcrt1p4cheq3llrcl4smxhve20hqlkfq7dqf3s3vp503t8rl47rxwgggksyf3g5e"),
+        (LEGAL_MNEMONIC, BTC_REGTEST, 2147483647, "m/86'/1'/0'/0/2147483647", "0x03a2dee826af97df40e6d984623f6fe5fa77e57cd5f608df10d4f57cc2913b70c3", "bcrt1p5rqam34aqmyt8t8ng027hyfevv3tgzyd477g74drj0ec7ql7hh5spq99e6"),
+        (LEGAL_MNEMONIC, ETH, 0, "m/44'/60'/0'/0/0", "0x03a70d1ef368ad99e90d509496e9888ee7404e4f4d360376bf521d769cf0c4de46", "0x58a57ed9d8d624cbd12e2c467d34787555bb1b25"),
+        (LEGAL_MNEMONIC, ETH, 1, "m/44'/60'/0'/0/1", "0x025063f04f89890d9fcc6a794e72f064cd98a38a75a52150689abd5292d0d388fb", "0x0d3eb21b6b21833a4939cfff4810e9ae0758e12c"),
+        (LEGAL_MNEMONIC, ETH, 2, "m/44'/60'/0'/0/2", "0x036b8e8777a4a4c3e3516d4536f81d2acfec0f204ea625b76accde78a506348c4c", "0xe42f4612e154153b68e241e8fde337e0c4dd6bbd"),
+        (LEGAL_MNEMONIC, ETH, 19, "m/44'/60'/0'/0/19", "0x032071280e2a7f87a98a64e236117aa92e86bdc49e997b35f8da7796406312ffa0", "0x1bf35cd18ba074dc21715906e7679f7c49ad5361"),
+        (LEGAL_MNEMONIC, ETH, 1000, "m/44'/60'/0'/0/1000", "0x03828ffc392d43c70434cb12974d84f3537f574037ff718ce51a51af5af729f43a", "0x44a2e54ae16dd2060de47124be27a07bf896a681"),
+        (LEGAL_MNEMONIC, ETH, 2147483647, "m/44'/60'/0'/0/2147483647", "0x02192164756754a756627ec90740863db79edffc25d57b6054d4ebe58d70ef43e2", "0x577eb46bb8075f5c00bc0607d6e21129d2f70ca7"),
+    ];
+
+    #[test]
+    fn golden_derivation_table() {
+        for &(words, network, i, path, public_key, address) in GOLDEN {
+            let account = derive_account_keys(&phrase(words), network, index(i)).unwrap();
+            let case = format!("{network:?} index {i} ({}…)", &words[..5]);
+            assert_eq!(account.derivation_path, path, "{case}");
+            assert_eq!(account.public_key, public_key, "{case}");
+            assert_eq!(account.address, address, "{case}");
+        }
+        // Every supported network and both index edges are covered.
+        for network in BitcoinNetwork::ALL
+            .map(Network::Bitcoin)
+            .into_iter()
+            .chain([ETH])
+        {
+            for i in [0, DerivationIndex::MAX] {
+                assert!(
+                    GOLDEN.iter().any(|g| g.1 == network && g.2 == i),
+                    "{network:?} {i}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn bip86_internal_and_output_keys_match_the_specification() {
+        // BIP86 test vectors for "abandon … about", account 0, receive chain:
+        // (index, internal key, tweaked output key). The derived public key is
+        // the *internal* key; the address commits to the BIP341 output key
+        // tweaked with no script tree.
+        for (i, internal_key, output_key) in [
+            (
+                0,
+                "cc8a4bc64d897bddc5fbc2f670f7a8ba0b386779106cf1223c6fc5d7cd6fc115",
+                "a60869f0dbcf1dc659c9cecbaf8050135ea9e8cdc487053f1dc6880949dc684c",
+            ),
+            (
+                1,
+                "83dfe85a3151d2517290da461fe2815591ef69f2b18a2ce63f01697a8b313145",
+                "a82f29944d65b86ae6b5e5cc75e294ead6c59391a1edc5e016e3498c67fc7bbb",
+            ),
+        ] {
+            let account = derive(MAINNET, i);
+            // Compressed SEC1 key = parity byte ‖ x-only internal key.
+            assert_eq!(&account.public_key[4..], internal_key, "index {i}");
+            let script = account
+                .address
+                .parse::<Address<bitcoin::address::NetworkUnchecked>>()
+                .unwrap()
+                .assume_checked()
+                .script_pubkey();
+            // OP_1 OP_PUSHBYTES_32 <output key>
+            assert_eq!(
+                hex::encode(script.as_bytes()),
+                format!("5120{output_key}"),
+                "index {i}"
+            );
+        }
+    }
+
     // ---- Mnemonic generation ------------------------------------------------
 
     #[test]
@@ -352,6 +521,16 @@ mod tests {
     }
 
     // ---- Secret hygiene -----------------------------------------------------
+
+    #[test]
+    fn extended_private_keys_are_erased() {
+        let mut xprv =
+            ErasedXpriv(Xpriv::new_master(NetworkKind::Main, &[7u8; 64]).expect("master key"));
+        let secret = xprv.0.private_key.secret_bytes();
+        xprv.erase();
+        assert_ne!(xprv.0.private_key.secret_bytes(), secret);
+        assert_eq!(xprv.0.chain_code.to_bytes(), [0u8; 32]);
+    }
 
     #[test]
     fn debug_output_redacts_secrets() {

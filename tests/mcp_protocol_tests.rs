@@ -26,6 +26,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tempfile::TempDir;
 use tokio_util::sync::CancellationToken;
+use utoipa::OpenApi as _;
 
 /// Deterministic key hierarchy for tests (fixed, non-secret master key).
 fn test_keyring() -> arktos_wallet::keys::Keyring {
@@ -828,6 +829,42 @@ async fn wallets_are_isolated_per_api_key() {
     );
 }
 
+#[tokio::test]
+async fn routing_headers_are_validated_and_unknown_tools_are_errors() {
+    let server = TestServer::start().await;
+    let api_key = server.api_key("headers").await;
+    let tool_call = |name: &str| json!({ "name": name, "arguments": {} });
+
+    // Mcp-Name must match the body (SEP-2243); rejected before dispatch.
+    let response = raw_request(
+        &server.url,
+        Some(&api_key),
+        "tools/call",
+        Some("ping"),
+        tool_call("list_wallets"),
+    )
+    .await;
+    assert_eq!(response.status(), 400);
+    let body: Value = response.json().await.expect("json");
+    assert_eq!(body["error"]["code"], -32020);
+
+    // An unknown tool is a JSON-RPC error. rmcp >= 3.6 (RUSTSEC-2026-0461)
+    // no longer looks tools up while validating headers, so this arrives
+    // with HTTP 200 rather than 400; the JSON-RPC error is unchanged.
+    let response = raw_request(
+        &server.url,
+        Some(&api_key),
+        "tools/call",
+        Some("no_such_tool"),
+        tool_call("no_such_tool"),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let body: Value = response.json().await.expect("json");
+    assert_eq!(body["error"]["code"], -32602);
+    assert_eq!(body["error"]["message"], "tool not found");
+}
+
 // ---------------------------------------------------------------------------
 // Health, readiness and admin error handling
 // ---------------------------------------------------------------------------
@@ -844,6 +881,35 @@ async fn readiness_reports_database_access() {
         .expect("request");
     assert_eq!(response.status(), 200);
     assert_eq!(response.text().await.unwrap(), "READY");
+}
+
+#[tokio::test]
+async fn openapi_document_is_served_without_auth() {
+    let server = TestServer::start().await;
+    let response = reqwest::get(format!("{}/openapi.json", base_url(&server)))
+        .await
+        .expect("request");
+    assert_eq!(response.status(), 200);
+    assert_eq!(
+        response.headers()["content-type"],
+        "application/json",
+        "served as JSON"
+    );
+    let served: Value = response.json().await.expect("JSON body");
+    let expected = serde_json::to_value(arktos_wallet::api_info::ApiDoc::openapi()).unwrap();
+    assert_eq!(served, expected);
+}
+
+#[tokio::test]
+async fn unknown_paths_are_not_found_without_auth() {
+    let server = TestServer::start().await;
+    // `/swagger-ui` was removed with the embedded UI; it is an unknown path now.
+    for path in ["/no-such-path", "/swagger-ui", "/swagger-ui/", "/admin"] {
+        let response = reqwest::get(format!("{}{path}", base_url(&server)))
+            .await
+            .expect("request");
+        assert_eq!(response.status(), 404, "{path}");
+    }
 }
 
 #[tokio::test]
