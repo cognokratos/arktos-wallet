@@ -36,6 +36,7 @@ Run `make help` to list all targets.
 | Vulnerability audit | `make audit` |
 | Licenses / bans / sources / advisories | `make deny` |
 | Documentation links, anchors, paths, make targets | `make docs-check` |
+| Vendored crate provenance (network) | `make vendor-check` |
 | **Everything CI runs, except Docker** | `make ci` |
 | Dockerfile lint / image build | `make docker-lint` / `make docker-build` |
 
