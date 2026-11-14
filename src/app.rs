@@ -5,9 +5,10 @@
 //! /readyz    → readiness: database accessible (no auth)
 //! /admin/*   → REST admin API (admin API key)
 //! /mcp       → stateless MCP 2026-07-28 endpoint (client API key)
+//! /openapi.json → OpenAPI document (no auth)
 //! ```
 
-use crate::api_info::{api_doc, health, ready};
+use crate::api_info::{health, openapi_json, ready};
 use crate::auth::{
     AppState, admin_auth, api_key_auth, create_api_key, list_api_keys, revoke_api_key,
     rotate_api_key,
@@ -17,6 +18,7 @@ use crate::wallet_services::WalletServices;
 use axum::Router;
 use axum::middleware::from_fn_with_state;
 use axum::routing::{get, post};
+use http::StatusCode;
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 
@@ -46,8 +48,11 @@ pub fn router(
     Router::new()
         .route("/healthz", get(health))
         .route("/readyz", get(ready))
+        .route("/openapi.json", get(openapi_json))
         .nest("/admin", admin_routes)
         .merge(mcp_routes)
         .with_state(app_state)
-        .merge(api_doc())
+        // Unknown paths are 404 without authentication; without this the
+        // fallback would inherit the `/mcp` API-key layer and answer 401.
+        .fallback(|| async { StatusCode::NOT_FOUND })
 }

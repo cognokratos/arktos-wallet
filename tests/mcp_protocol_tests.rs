@@ -26,6 +26,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tempfile::TempDir;
 use tokio_util::sync::CancellationToken;
+use utoipa::OpenApi as _;
 
 /// Deterministic key hierarchy for tests (fixed, non-secret master key).
 fn test_keyring() -> arktos_wallet::keys::Keyring {
@@ -844,6 +845,35 @@ async fn readiness_reports_database_access() {
         .expect("request");
     assert_eq!(response.status(), 200);
     assert_eq!(response.text().await.unwrap(), "READY");
+}
+
+#[tokio::test]
+async fn openapi_document_is_served_without_auth() {
+    let server = TestServer::start().await;
+    let response = reqwest::get(format!("{}/openapi.json", base_url(&server)))
+        .await
+        .expect("request");
+    assert_eq!(response.status(), 200);
+    assert_eq!(
+        response.headers()["content-type"],
+        "application/json",
+        "served as JSON"
+    );
+    let served: Value = response.json().await.expect("JSON body");
+    let expected = serde_json::to_value(arktos_wallet::api_info::ApiDoc::openapi()).unwrap();
+    assert_eq!(served, expected);
+}
+
+#[tokio::test]
+async fn unknown_paths_are_not_found_without_auth() {
+    let server = TestServer::start().await;
+    // `/swagger-ui` was removed with the embedded UI; it is an unknown path now.
+    for path in ["/no-such-path", "/swagger-ui", "/swagger-ui/", "/admin"] {
+        let response = reqwest::get(format!("{}{path}", base_url(&server)))
+            .await
+            .expect("request");
+        assert_eq!(response.status(), 404, "{path}");
+    }
 }
 
 #[tokio::test]

@@ -120,7 +120,6 @@ async fn serve() -> anyhow::Result<()> {
     tracing::info!("Listening on http://{addr}");
     tracing::info!("MCP endpoint (MCP 2026-07-28, stateless): http://{addr}/mcp");
     tracing::info!("Health check: http://{addr}/healthz");
-    tracing::info!("Swagger UI: http://{addr}/swagger-ui");
     tracing::info!("OpenAPI Spec: http://{addr}/openapi.json");
 
     let listener = tokio::net::TcpListener::bind(addr).await?;

@@ -1,5 +1,6 @@
-//! OpenAPI/Swagger UI configuration for the Arktos Wallet API.
+//! OpenAPI document for the Arktos Wallet API, served as JSON at `/openapi.json`.
 //!
+//! No documentation UI is embedded; load the document into any OpenAPI viewer.
 //! The REST endpoints (`/healthz`, `/admin/*`) are documented from their
 //! handlers. `/mcp` is described only at the HTTP level: its payloads are
 //! defined by the MCP specification, not mirrored here.
@@ -8,6 +9,7 @@ use crate::auth::AppState;
 use crate::auth::{
     CreateApiKeyRequest, ErrorBody, ErrorDetail, ListApiKeysResponse, NewApiKeyResponse,
 };
+use axum::Json;
 use axum::extract::State;
 use axum::response::IntoResponse;
 use http::StatusCode;
@@ -20,7 +22,6 @@ use utoipa::openapi::{
     ResponsesBuilder, Type,
 };
 use utoipa::{Modify, OpenApi, openapi};
-use utoipa_swagger_ui::SwaggerUi;
 
 // -------------------------
 // Real axum health endpoint
@@ -277,12 +278,9 @@ impl Modify for McpPath {
 )]
 pub struct ApiDoc;
 
-/// Provides the Swagger UI instance for serving the OpenAPI specification.
-///
-/// Returns a Swagger UI instance that serves the OpenAPI specification at `/api-docs/openapi.json`.
-/// This allows users to explore and interact with the API documentation through a web interface.
-pub fn api_doc() -> SwaggerUi {
-    SwaggerUi::new("/swagger-ui").url("/openapi.json", ApiDoc::openapi())
+/// `GET /openapi.json`: the OpenAPI document (no auth).
+pub async fn openapi_json() -> Json<openapi::OpenApi> {
+    Json(ApiDoc::openapi())
 }
 
 #[cfg(test)]

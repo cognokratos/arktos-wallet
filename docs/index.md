@@ -70,7 +70,7 @@ Related tracks: [simple-agent-template](https://github.com/cognokratos/simple-ag
 | `GET /healthz`, `GET /readyz` | none |
 | `POST /mcp` (MCP `2026-07-28`, stateless) | client API key (`X-API-KEY`) |
 | `/admin/api-keys` | admin API key (`X-API-KEY`) |
-| `/swagger-ui`, `/openapi.json` | none |
+| `GET /openapi.json` (OpenAPI document) | none |
 
 ### Key files
 

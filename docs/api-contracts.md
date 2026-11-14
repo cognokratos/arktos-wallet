@@ -87,7 +87,7 @@ REST endpoints for API-key administration (not MCP), authenticated with the admi
 | `POST /admin/api-keys/{id}/rotate` | — | `{"api_key": "…"}`; the old key stops working | 404, 503 |
 | `POST /admin/api-keys/{id}/revoke` | — | `API key revoked` (text) | 404, 503 |
 
-Errors use the same body as MCP tool errors: `{"error": {"code": "invalid_argument" | "not_found" | "unavailable" | "internal", "message": "…"}}`. Schemas are in `/openapi.json` (`/swagger-ui`).
+Errors use the same body as MCP tool errors: `{"error": {"code": "invalid_argument" | "not_found" | "unavailable" | "internal", "message": "…"}}`. Schemas are in the OpenAPI document at `/openapi.json` (no UI is embedded; open it in any OpenAPI viewer).
 
 ### 4. Health
 

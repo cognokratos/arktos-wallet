@@ -233,7 +233,7 @@ The server exposes a minimal, intentionally-constrained HTTP interface to maximi
 | `/readyz` | GET | Readiness probe (database accessible; migrations ran at startup) | None |
 | `/mcp` | POST | Model Context Protocol endpoint (MCP `2026-07-28`) | API Key (`X-API-KEY`) |
 | `/admin/api-keys`, `/admin/api-keys/{id}/revoke`, `/admin/api-keys/{id}/rotate` | GET/POST | API key administration (REST, not MCP) | Admin API Key |
-| `/swagger-ui`, `/openapi.json` | GET | API documentation | None |
+| `/openapi.json` | GET | OpenAPI document (JSON; load it into any OpenAPI viewer, no UI is embedded) | None |
 
 ### MCP Transport
 
