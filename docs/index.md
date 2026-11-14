@@ -32,6 +32,7 @@ Related tracks: [simple-agent-template](https://github.com/cognokratos/simple-ag
 - **[Data Models](./data-models.md)**: the `api_keys`, `wallets` and `accounts` tables, relationships and encryption
 - **[Project Overview](./project-overview.md)**: summary, technology stack and repository structure
 - [SECURITY.md](../SECURITY.md): how to report vulnerabilities
+- [Dependency Advisory Inventory](./security-advisory-inventory.md): RustSec findings, dependency paths, remediation evidence and open exceptions
 
 ## Operate / Customize
 
